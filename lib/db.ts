@@ -1,8 +1,17 @@
 import Database from "better-sqlite3";
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 
-const DB_DIR = path.join(process.cwd(), "data");
+// Store the SQLite database OUTSIDE the project directory so its WAL/SHM
+// sidecar files do not trip the Next.js dev file watcher (which would force
+// page reloads and wipe form state).
+const DB_DIR =
+  process.env.TEXTBOOK_DATA_DIR ||
+  path.join(
+    process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"),
+    "personal-textbook",
+  );
 const DB_PATH = path.join(DB_DIR, "textbook.db");
 
 declare global {
