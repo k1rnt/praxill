@@ -57,6 +57,29 @@ export function parseLatestQuiz(text: string): Quiz | null {
 }
 
 /**
+ * Detect whether the assistant message starts with a correct/incorrect
+ * verdict. Looks at the first ~400 chars for the usual Japanese cues
+ * (正解/不正解) and common emoji markers.
+ */
+export function detectQuizResult(
+  text: string,
+): "correct" | "incorrect" | null {
+  if (!text) return null;
+  const head = text.slice(0, 400);
+  const correctHit =
+    /(?:^|\n)\s*(?:✅|⭕|🟢|◯|○)|(?:^|\n|\s)(?:正解|正答)(?:です|！|!|。|\s|$)/.test(
+      head,
+    );
+  const wrongHit =
+    /(?:^|\n)\s*(?:❌|✕|✖|🔴|×)|(?:^|\n|\s)(?:不正解|誤り|残念)(?:です|！|!|。|\s|$)/.test(
+      head,
+    );
+  if (correctHit && !wrongHit) return "correct";
+  if (wrongHit && !correctHit) return "incorrect";
+  return null;
+}
+
+/**
  * Strip the latest quiz block (Q-header + A-D options) from an assistant
  * message so the same text isn't shown twice (once in markdown, once as buttons).
  */

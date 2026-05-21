@@ -1,15 +1,74 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message, Topic } from "@/lib/db";
-import { parseLatestQuiz, stripLatestQuiz, type Quiz } from "@/lib/parseQuiz";
+import {
+  detectQuizResult,
+  parseLatestQuiz,
+  stripLatestQuiz,
+  type Quiz,
+} from "@/lib/parseQuiz";
 import {
   parseKnowledgeMap,
   type KnowledgeMap,
 } from "@/lib/parseKnowledgeMap";
+
+type Round = {
+  user: Message;
+  assistant: Message | null;
+  prevAssistant: Message | null;
+};
+
+function buildRounds(visible: Message[]): Round[] {
+  const rounds: Round[] = [];
+  for (let i = 0; i < visible.length; i++) {
+    const m = visible[i];
+    if (m.role !== "user") continue;
+    const prev = i > 0 ? visible[i - 1] : null;
+    const next = i + 1 < visible.length ? visible[i + 1] : null;
+    rounds.push({
+      user: m,
+      assistant: next && next.role === "assistant" ? next : null,
+      prevAssistant: prev && prev.role === "assistant" ? prev : null,
+    });
+  }
+  return rounds;
+}
+
+function summarizeRound(round: Round): {
+  qLabel: string | null;
+  title: string;
+  sub: string;
+  result: "correct" | "incorrect" | null;
+} {
+  const prevQuiz = round.prevAssistant
+    ? parseLatestQuiz(round.prevAssistant.content)
+    : null;
+  const userMatch = round.user.content.match(/(?:^|\n)\s*回答[:：]\s*([A-D])/);
+  const userAnswer = userMatch?.[1] ?? null;
+
+  const result = round.assistant ? detectQuizResult(round.assistant.content) : null;
+
+  if (prevQuiz && userAnswer) {
+    return {
+      qLabel: `Q${prevQuiz.number}`,
+      title: prevQuiz.title || "（タイトルなし）",
+      sub: `あなたの回答: ${userAnswer}`,
+      result,
+    };
+  }
+
+  const oneLine = round.user.content.replace(/\s+/g, " ").trim();
+  return {
+    qLabel: null,
+    title: oneLine.length > 60 ? oneLine.slice(0, 60) + "…" : oneLine,
+    sub: "フリーテキスト",
+    result,
+  };
+}
 
 const LETTERS = ["A", "B", "C", "D"] as const;
 type Letter = (typeof LETTERS)[number];
@@ -56,12 +115,46 @@ export default function ChatView({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
 
   const visibleMessages = useMemo(
     () => messages.filter((_, idx) => !(idx === 0 && messages[0]?.role === "user")),
     [messages],
   );
+
+  const rounds = useMemo(() => buildRounds(visibleMessages), [visibleMessages]);
+
+  const [openRounds, setOpenRounds] = useState<Set<number>>(() => {
+    // Initially expand only the most recent round
+    const initialRounds = buildRounds(
+      initialMessages.filter(
+        (_, idx) => !(idx === 0 && initialMessages[0]?.role === "user"),
+      ),
+    );
+    const last = initialRounds[initialRounds.length - 1];
+    return last ? new Set([last.user.id]) : new Set();
+  });
+
+  const lastRoundId = rounds[rounds.length - 1]?.user.id ?? null;
+
+  // Whenever a brand-new round appears (user just submitted), auto-expand it
+  // so the result/feedback is visible. Existing open/closed states are kept.
+  useEffect(() => {
+    if (lastRoundId !== null) {
+      setOpenRounds((prev) => {
+        if (prev.has(lastRoundId)) return prev;
+        return new Set([...prev, lastRoundId]);
+      });
+    }
+  }, [lastRoundId]);
+
+  const toggleRound = (id: number) => {
+    setOpenRounds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const lastAssistant = useMemo(
     () =>
@@ -99,10 +192,6 @@ export default function ChatView({
     () => (lastAssistant ? parseLatestQuiz(lastAssistant.content) : null),
     [lastAssistant],
   );
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, sending]);
 
   // Reset quiz state whenever a new question arrives
   useEffect(() => {
@@ -228,35 +317,22 @@ export default function ChatView({
       </div>
 
       <div className="chat">
-        {visibleMessages.map((m) => {
-          const isLastAssistant = m === lastAssistant;
-          const body =
-            isLastAssistant && quiz ? stripLatestQuiz(m.content) : m.content;
-          return (
-            <div
-              key={m.id}
-              className={`bubble ${m.role === "user" ? "bubble--user" : "bubble--assistant"}`}
-            >
-              <div className="bubble__role">
-                {m.role === "user" ? "あなた" : "Trainer"}
-              </div>
-              <div className="markdown">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
-              </div>
-            </div>
-          );
-        })}
-        {sending && (
-          <div className="bubble bubble--assistant bubble--loading">
-            <div className="thinking-dots">
-              <span />
-              <span />
-              <span />
-            </div>
-            <span>Trainer が考え中… (15〜30秒)</span>
+        {rounds.length === 0 ? (
+          <div className="chat__hint">
+            🗺 マップで全体像を確認したら、下の「学習を始める」を押して
+            Q1 から解いていきましょう。
           </div>
+        ) : (
+          rounds.map((round, idx) => (
+            <RoundCard
+              key={round.user.id}
+              round={round}
+              isLatest={idx === rounds.length - 1}
+              isOpen={openRounds.has(round.user.id)}
+              onToggle={() => toggleRound(round.user.id)}
+            />
+          ))
         )}
-        <div ref={bottomRef} />
       </div>
 
       {error && <div className="error">{error}</div>}
@@ -324,6 +400,101 @@ export default function ChatView({
         />
       )}
     </>
+  );
+}
+
+function RoundCard({
+  round,
+  isLatest,
+  isOpen,
+  onToggle,
+}: {
+  round: Round;
+  isLatest: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  const { qLabel, title, sub, result } = summarizeRound(round);
+
+  // Pending = user submitted but Trainer hasn't replied yet
+  const pending = round.assistant === null;
+
+  return (
+    <div className={`round ${isOpen ? "round--open" : ""} ${isLatest ? "round--latest" : ""}`}>
+      <button
+        type="button"
+        className="round__header"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+      >
+        <span
+          className={`round__qbadge ${
+            qLabel === null ? "round__qbadge--freeform" : ""
+          }`}
+        >
+          {qLabel ?? "💬"}
+        </span>
+        <span className="round__summary">
+          <span className="round__summary-title">{title}</span>
+          <span className="round__summary-sub">{sub}</span>
+        </span>
+        {pending ? (
+          <span className="round__chip round__chip--pending">
+            <span className="spinner" />
+            採点中
+          </span>
+        ) : result ? (
+          <span className={`round__chip round__chip--${result}`}>
+            {result === "correct" ? "✓ 正解" : "✗ 不正解"}
+          </span>
+        ) : null}
+        <span className="round__chev" aria-hidden>
+          ▾
+        </span>
+      </button>
+
+      {isOpen && (
+        <div className="round__body">
+          <div>
+            <div className="round__section-label">あなたの回答</div>
+            <div className="round__user-content markdown">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {round.user.content}
+              </ReactMarkdown>
+            </div>
+          </div>
+
+          {result && (
+            <div className={`big-result big-result--${result}`}>
+              <span className="big-result__icon">
+                {result === "correct" ? "🎉" : "❌"}
+              </span>
+              <span>{result === "correct" ? "正解！" : "不正解"}</span>
+            </div>
+          )}
+
+          {round.assistant ? (
+            <div>
+              <div className="round__section-label">Trainer の解説</div>
+              <div className="markdown">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {stripLatestQuiz(round.assistant.content)}
+                </ReactMarkdown>
+              </div>
+            </div>
+          ) : (
+            <div className="round__pending">
+              <span className="thinking-dots">
+                <span />
+                <span />
+                <span />
+              </span>
+              <span>Trainer が考え中… (15〜30秒)</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
