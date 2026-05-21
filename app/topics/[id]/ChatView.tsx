@@ -41,6 +41,7 @@ export default function ChatView({
   const [topicState, setTopicState] = useState(topic);
   const [messages, setMessages] = useState(initialMessages);
   const [quizMode, setQuizMode] = useState(false);
+  const [mapMode, setMapMode] = useState(false);
   const [selected, setSelected] = useState<Letter | null>(null);
   const [reason, setReason] = useState("");
   const [hesitated, setHesitated] = useState("");
@@ -63,6 +64,18 @@ export default function ChatView({
     [visibleMessages],
   );
 
+  const firstAssistant = useMemo(
+    () => visibleMessages.find((m) => m.role === "assistant") ?? null,
+    [visibleMessages],
+  );
+
+  // The very first Trainer response always opens with a knowledge map
+  // (knowledge map → first Q1). Strip the Q-block to keep just the map.
+  const knowledgeMap = useMemo(
+    () => (firstAssistant ? stripLatestQuiz(firstAssistant.content) : ""),
+    [firstAssistant],
+  );
+
   const quiz: Quiz | null = useMemo(
     () => (lastAssistant ? parseLatestQuiz(lastAssistant.content) : null),
     [lastAssistant],
@@ -82,16 +95,16 @@ export default function ChatView({
     setQuizMode(false);
   }, [quiz?.number]);
 
-  // Lock body scroll while the full-screen overlay is open
+  // Lock body scroll while any full-screen overlay is open
   useEffect(() => {
-    if (quizMode) {
+    if (quizMode || mapMode) {
       const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
       return () => {
         document.body.style.overflow = prev;
       };
     }
-  }, [quizMode]);
+  }, [quizMode, mapMode]);
 
   async function send(content: string) {
     if (sending || !content.trim()) return;
@@ -167,6 +180,16 @@ export default function ChatView({
       <div className="chat-meta">
         <div className="chat-meta__row">
           <div className="chat-meta__title">{topicState.title}</div>
+          {knowledgeMap && (
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={() => setMapMode(true)}
+              aria-label="知識マップを開く"
+            >
+              🗺 マップ
+            </button>
+          )}
           <button
             type="button"
             className="btn btn--danger btn--sm"
@@ -253,6 +276,13 @@ export default function ChatView({
         </div>
       </div>
 
+      {mapMode && (
+        <MapOverlay
+          content={knowledgeMap}
+          onClose={() => setMapMode(false)}
+        />
+      )}
+
       {quiz && quizMode && (
         <QuizOverlay
           quiz={quiz}
@@ -272,6 +302,41 @@ export default function ChatView({
         />
       )}
     </>
+  );
+}
+
+function MapOverlay({
+  content,
+  onClose,
+}: {
+  content: string;
+  onClose: () => void;
+}) {
+  return (
+    <div className="map-overlay" role="dialog" aria-modal="true">
+      <div className="map-overlay__header">
+        <button
+          type="button"
+          className="map-overlay__back"
+          onClick={onClose}
+          aria-label="戻る"
+        >
+          ← 戻る
+        </button>
+        <span className="map-overlay__title">🗺 知識マップ</span>
+      </div>
+      <div className="map-overlay__body">
+        {content ? (
+          <div className="markdown">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
+        ) : (
+          <div className="map-overlay__empty">
+            知識マップはまだありません。
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

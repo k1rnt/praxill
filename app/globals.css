@@ -748,6 +748,61 @@ kbd {
   opacity: 0.85;
 }
 
+/* Full-screen knowledge map overlay (reference view) */
+.map-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.22s ease;
+}
+
+.map-overlay__header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.map-overlay__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  min-height: 40px;
+  border-radius: 10px;
+  color: var(--fg);
+  background: var(--bg-elev-2);
+  font-size: 0.9rem;
+  border: 1px solid var(--border);
+}
+
+.map-overlay__title {
+  flex: 1;
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.map-overlay__body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 18px 16px calc(24px + var(--safe-bottom));
+}
+
+.map-overlay__empty {
+  color: var(--fg-muted);
+  text-align: center;
+  margin-top: 40px;
+  padding: 24px;
+}
+
 /* Full-screen quiz overlay (active quiz mode) */
 .quiz-overlay {
   position: fixed;
