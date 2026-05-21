@@ -803,6 +803,109 @@ kbd {
   padding: 24px;
 }
 
+/* Knowledge map — vertical phase cards */
+.kmap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kmap__intro {
+  color: var(--fg);
+  font-size: 0.9rem;
+  line-height: 1.65;
+  margin-bottom: 4px;
+  white-space: pre-wrap;
+}
+
+.kmap__phase {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.12s ease;
+}
+
+.kmap__phase--open {
+  border-color: var(--border-strong);
+}
+
+.kmap__phase-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: left;
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.12s ease;
+  touch-action: manipulation;
+}
+
+.kmap__phase-header:active {
+  background: var(--bg-elev-2);
+}
+
+.kmap__phase-badge {
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 4px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.kmap__phase-headline {
+  flex: 1;
+  font-size: 0.93rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--fg);
+}
+
+.kmap__phase-chev {
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+  font-size: 1.1rem;
+  transition: transform 0.18s ease;
+  line-height: 1;
+}
+
+.kmap__phase--open .kmap__phase-chev {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+.kmap__phase-body {
+  border-top: 1px solid var(--border);
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: slideDown 0.16s ease;
+}
+
+.kmap__field-label {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  font-weight: 600;
+  margin-bottom: 3px;
+  letter-spacing: 0.02em;
+}
+
+.kmap__field-value {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+
 /* Full-screen quiz overlay (active quiz mode) */
 .quiz-overlay {
   position: fixed;

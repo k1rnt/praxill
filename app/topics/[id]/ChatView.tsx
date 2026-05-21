@@ -6,6 +6,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message, Topic } from "@/lib/db";
 import { parseLatestQuiz, stripLatestQuiz, type Quiz } from "@/lib/parseQuiz";
+import {
+  parseKnowledgeMap,
+  type KnowledgeMap,
+} from "@/lib/parseKnowledgeMap";
 
 const LETTERS = ["A", "B", "C", "D"] as const;
 type Letter = (typeof LETTERS)[number];
@@ -42,6 +46,7 @@ export default function ChatView({
   const [messages, setMessages] = useState(initialMessages);
   const [quizMode, setQuizMode] = useState(false);
   const [mapMode, setMapMode] = useState(false);
+  const [openPhases, setOpenPhases] = useState<Set<string>>(() => new Set());
   const [selected, setSelected] = useState<Letter | null>(null);
   const [reason, setReason] = useState("");
   const [hesitated, setHesitated] = useState("");
@@ -71,10 +76,24 @@ export default function ChatView({
 
   // The very first Trainer response always opens with a knowledge map
   // (knowledge map → first Q1). Strip the Q-block to keep just the map.
-  const knowledgeMap = useMemo(
+  const knowledgeMapRaw = useMemo(
     () => (firstAssistant ? stripLatestQuiz(firstAssistant.content) : ""),
     [firstAssistant],
   );
+
+  const knowledgeMap: KnowledgeMap | null = useMemo(
+    () => parseKnowledgeMap(knowledgeMapRaw),
+    [knowledgeMapRaw],
+  );
+
+  const togglePhase = (phase: string) => {
+    setOpenPhases((prev) => {
+      const next = new Set(prev);
+      if (next.has(phase)) next.delete(phase);
+      else next.add(phase);
+      return next;
+    });
+  };
 
   const quiz: Quiz | null = useMemo(
     () => (lastAssistant ? parseLatestQuiz(lastAssistant.content) : null),
@@ -180,7 +199,7 @@ export default function ChatView({
       <div className="chat-meta">
         <div className="chat-meta__row">
           <div className="chat-meta__title">{topicState.title}</div>
-          {knowledgeMap && (
+          {knowledgeMapRaw && (
             <button
               type="button"
               className="btn btn--ghost btn--sm"
@@ -278,7 +297,10 @@ export default function ChatView({
 
       {mapMode && (
         <MapOverlay
-          content={knowledgeMap}
+          map={knowledgeMap}
+          rawFallback={knowledgeMapRaw}
+          openPhases={openPhases}
+          togglePhase={togglePhase}
           onClose={() => setMapMode(false)}
         />
       )}
@@ -306,10 +328,16 @@ export default function ChatView({
 }
 
 function MapOverlay({
-  content,
+  map,
+  rawFallback,
+  openPhases,
+  togglePhase,
   onClose,
 }: {
-  content: string;
+  map: KnowledgeMap | null;
+  rawFallback: string;
+  openPhases: Set<string>;
+  togglePhase: (phase: string) => void;
   onClose: () => void;
 }) {
   return (
@@ -326,9 +354,48 @@ function MapOverlay({
         <span className="map-overlay__title">🗺 知識マップ</span>
       </div>
       <div className="map-overlay__body">
-        {content ? (
+        {map ? (
+          <div className="kmap">
+            {map.intro && <div className="kmap__intro">{map.intro}</div>}
+            {map.phases.map((p) => {
+              const isOpen = openPhases.has(p.phase);
+              return (
+                <div
+                  key={p.phase}
+                  className={`kmap__phase ${isOpen ? "kmap__phase--open" : ""}`}
+                >
+                  <button
+                    type="button"
+                    className="kmap__phase-header"
+                    onClick={() => togglePhase(p.phase)}
+                    aria-expanded={isOpen}
+                  >
+                    <span className="kmap__phase-badge">{p.phase}</span>
+                    <span className="kmap__phase-headline">{p.headline}</span>
+                    <span className="kmap__phase-chev" aria-hidden>
+                      ▾
+                    </span>
+                  </button>
+                  {isOpen && p.fields.length > 0 && (
+                    <div className="kmap__phase-body">
+                      {p.fields.map((f, i) => (
+                        <div key={i}>
+                          <div className="kmap__field-label">{f.label}</div>
+                          <div className="kmap__field-value">{f.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : rawFallback ? (
+          // Couldn't parse a table — fall back to plain markdown rendering
           <div className="markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {rawFallback}
+            </ReactMarkdown>
           </div>
         ) : (
           <div className="map-overlay__empty">
