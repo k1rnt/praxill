@@ -18,18 +18,11 @@ function progressPercent(t: Topic) {
 }
 
 function formatAnswer(
-  choice: Letter | null,
+  choice: Letter,
   reason: string,
   hesitated: string,
   confidence: string,
 ): string {
-  if (!choice) {
-    const lines = [];
-    if (reason.trim()) lines.push(`理由: ${reason.trim()}`);
-    if (hesitated.trim()) lines.push(`迷った選択肢: ${hesitated.trim()}`);
-    if (confidence.trim()) lines.push(`自信度: ${confidence.trim()}`);
-    return lines.join("\n");
-  }
   const lines = [`回答: ${choice}`];
   if (reason.trim()) lines.push(`理由: ${reason.trim()}`);
   if (hesitated.trim()) lines.push(`迷った選択肢: ${hesitated.trim()}`);
@@ -47,6 +40,7 @@ export default function ChatView({
   const router = useRouter();
   const [topicState, setTopicState] = useState(topic);
   const [messages, setMessages] = useState(initialMessages);
+  const [quizMode, setQuizMode] = useState(false);
   const [selected, setSelected] = useState<Letter | null>(null);
   const [reason, setReason] = useState("");
   const [hesitated, setHesitated] = useState("");
@@ -75,18 +69,29 @@ export default function ChatView({
   );
 
   useEffect(() => {
-    // Auto-scroll to bottom when new content arrives or thinking state changes
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length, sending]);
 
+  // Reset quiz state whenever a new question arrives
   useEffect(() => {
-    // Reset quiz inputs whenever a new question arrives
     setSelected(null);
     setReason("");
     setHesitated("");
     setConfidence("");
     setShowExtras(false);
+    setQuizMode(false);
   }, [quiz?.number]);
+
+  // Lock body scroll while the full-screen overlay is open
+  useEffect(() => {
+    if (quizMode) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = prev;
+      };
+    }
+  }, [quizMode]);
 
   async function send(content: string) {
     if (sending || !content.trim()) return;
@@ -126,6 +131,7 @@ export default function ChatView({
   function submitQuiz() {
     if (!selected) return;
     const content = formatAnswer(selected, reason, hesitated, confidence);
+    setQuizMode(false); // exit overlay first so the chat shows the answer + loading
     send(content);
   }
 
@@ -183,9 +189,7 @@ export default function ChatView({
         {visibleMessages.map((m) => {
           const isLastAssistant = m === lastAssistant;
           const body =
-            isLastAssistant && quiz
-              ? stripLatestQuiz(m.content)
-              : m.content;
+            isLastAssistant && quiz ? stripLatestQuiz(m.content) : m.content;
           return (
             <div
               key={m.id}
@@ -195,9 +199,7 @@ export default function ChatView({
                 {m.role === "user" ? "あなた" : "Trainer"}
               </div>
               <div className="markdown">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {body}
-                </ReactMarkdown>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
               </div>
             </div>
           );
@@ -220,21 +222,26 @@ export default function ChatView({
       <div className="quiz-dock">
         <div className="quiz-dock__inner">
           {quiz ? (
-            <QuizPanel
-              quiz={quiz}
-              selected={selected}
-              onSelect={setSelected}
-              reason={reason}
-              setReason={setReason}
-              hesitated={hesitated}
-              setHesitated={setHesitated}
-              confidence={confidence}
-              setConfidence={setConfidence}
-              showExtras={showExtras}
-              setShowExtras={setShowExtras}
-              onSubmit={submitQuiz}
-              sending={sending}
-            />
+            <button
+              type="button"
+              className="start-quiz"
+              onClick={() => setQuizMode(true)}
+              disabled={sending}
+            >
+              <span className="start-quiz__icon">📝</span>
+              <span className="start-quiz__body">
+                <span className="start-quiz__title">
+                  {sending ? "Trainer が考え中…" : "学習を始める"}
+                </span>
+                <span className="start-quiz__sub">
+                  Q{quiz.number}
+                  {quiz.title ? `. ${quiz.title}` : ""}
+                </span>
+              </span>
+              <span className="start-quiz__chev" aria-hidden>
+                ›
+              </span>
+            </button>
           ) : (
             <FreeComposer
               value={freeText}
@@ -245,11 +252,30 @@ export default function ChatView({
           )}
         </div>
       </div>
+
+      {quiz && quizMode && (
+        <QuizOverlay
+          quiz={quiz}
+          selected={selected}
+          onSelect={setSelected}
+          reason={reason}
+          setReason={setReason}
+          hesitated={hesitated}
+          setHesitated={setHesitated}
+          confidence={confidence}
+          setConfidence={setConfidence}
+          showExtras={showExtras}
+          setShowExtras={setShowExtras}
+          onClose={() => setQuizMode(false)}
+          onSubmit={submitQuiz}
+          sending={sending}
+        />
+      )}
     </>
   );
 }
 
-function QuizPanel({
+function QuizOverlay({
   quiz,
   selected,
   onSelect,
@@ -261,6 +287,7 @@ function QuizPanel({
   setConfidence,
   showExtras,
   setShowExtras,
+  onClose,
   onSubmit,
   sending,
 }: {
@@ -275,81 +302,97 @@ function QuizPanel({
   setConfidence: (s: string) => void;
   showExtras: boolean;
   setShowExtras: (b: boolean) => void;
+  onClose: () => void;
   onSubmit: () => void;
   sending: boolean;
 }) {
   return (
-    <div className="quiz-card">
-      <div className="quiz-card__header">
-        <span className="quiz-card__qno">Q{quiz.number}</span>
-        <span className="quiz-card__title">{quiz.title || "選択肢を選んでください"}</span>
-      </div>
-      <div className="options">
-        {LETTERS.map((l) => (
-          <button
-            key={l}
-            type="button"
-            className={`option ${selected === l ? "option--selected" : ""}`}
-            onClick={() => onSelect(l)}
-            disabled={sending}
-            aria-pressed={selected === l}
-          >
-            <span className="option__letter">{l}</span>
-            <span className="option__text">{quiz.options[l]}</span>
-          </button>
-        ))}
-      </div>
-
-      {showExtras && (
-        <div className="quiz-extras">
-          <div className="quiz-extras__row">
-            <label className="quiz-extras__label">理由（任意）</label>
-            <textarea
-              className="quiz-extras__textarea"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="なぜそう判断したか"
-              disabled={sending}
-            />
-          </div>
-          <div className="quiz-extras__row">
-            <label className="quiz-extras__label">迷った選択肢（任意）</label>
-            <input
-              type="text"
-              className="quiz-extras__input"
-              value={hesitated}
-              onChange={(e) => setHesitated(e.target.value)}
-              placeholder="例: A も迷った"
-              disabled={sending}
-            />
-          </div>
-          <div className="quiz-extras__row">
-            <label className="quiz-extras__label">自信度（任意）</label>
-            <input
-              type="text"
-              className="quiz-extras__input"
-              value={confidence}
-              onChange={(e) => setConfidence(e.target.value)}
-              placeholder="例: 70%"
-              disabled={sending}
-            />
-          </div>
-        </div>
-      )}
-
-      <div className="quiz-card__actions">
+    <div className="quiz-overlay" role="dialog" aria-modal="true">
+      <div className="quiz-overlay__header">
         <button
           type="button"
-          className="btn btn--ghost btn--sm"
-          onClick={() => setShowExtras(!showExtras)}
-          disabled={sending}
+          className="quiz-overlay__back"
+          onClick={onClose}
+          aria-label="戻る"
         >
-          {showExtras ? "− 補足を閉じる" : "+ 補足を書く"}
+          ← 一旦戻る
         </button>
-        <div style={{ flex: 1 }} />
+        <span className="quiz-overlay__qno">Q{quiz.number}</span>
+        <span className="quiz-overlay__title">{quiz.title}</span>
+      </div>
+
+      <div className="quiz-overlay__body">
+        {quiz.scenario && (
+          <div className="quiz-overlay__scenario">{quiz.scenario}</div>
+        )}
+
+        <div className="quiz-overlay__options">
+          {LETTERS.map((l) => (
+            <button
+              key={l}
+              type="button"
+              className={`quiz-overlay__option ${
+                selected === l ? "quiz-overlay__option--selected" : ""
+              }`}
+              onClick={() => onSelect(l)}
+              disabled={sending}
+              aria-pressed={selected === l}
+            >
+              <span className="quiz-overlay__option-letter">{l}</span>
+              <span className="quiz-overlay__option-text">
+                {quiz.options[l]}
+              </span>
+            </button>
+          ))}
+        </div>
+
         <button
           type="button"
-          className="btn btn--primary"
+          className="quiz-overlay__extras-toggle"
+          onClick={() => setShowExtras(!showExtras)}
+        >
+          {showExtras ? "− 補足を閉じる" : "+ 補足を書く（任意）"}
+        </button>
+
+        {showExtras && (
+          <div className="quiz-overlay__extras">
+            <div className="quiz-extras__row">
+              <label className="quiz-extras__label">理由</label>
+              <textarea
+                className="quiz-extras__textarea"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="なぜそう判断したか"
+              />
+            </div>
+            <div className="quiz-extras__row">
+              <label className="quiz-extras__label">迷った選択肢</label>
+              <input
+                type="text"
+                className="quiz-extras__input"
+                value={hesitated}
+                onChange={(e) => setHesitated(e.target.value)}
+                placeholder="例: A も迷った"
+              />
+            </div>
+            <div className="quiz-extras__row">
+              <label className="quiz-extras__label">自信度</label>
+              <input
+                type="text"
+                className="quiz-extras__input"
+                value={confidence}
+                onChange={(e) => setConfidence(e.target.value)}
+                placeholder="例: 70%"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="quiz-overlay__footer">
+        <button
+          type="button"
+          className="quiz-overlay__submit"
           onClick={onSubmit}
           disabled={!selected || sending}
         >
@@ -360,7 +403,7 @@ function QuizPanel({
           ) : selected ? (
             `${selected} で送信`
           ) : (
-            "選択してください"
+            "選択肢をタップしてください"
           )}
         </button>
       </div>
