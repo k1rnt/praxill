@@ -173,6 +173,59 @@ export function listMessages(
   return getDb().prepare(sql).all(topicId) as Message[];
 }
 
+/**
+ * Replace the entire database with the supplied topics + messages atomically.
+ * Used by the /api/import endpoint when restoring a backup. Resets
+ * sqlite_sequence so message IDs created after the import don't collide.
+ */
+export function replaceAll(topics: Topic[], messages: Message[]) {
+  const db = getDb();
+  const insertTopic = db.prepare(`
+    INSERT INTO topics (
+      id, title, subject, goal, thread_id,
+      current_phase, total_phases, correct_count, total_count,
+      status, created_at, updated_at
+    ) VALUES (
+      @id, @title, @subject, @goal, @thread_id,
+      @current_phase, @total_phases, @correct_count, @total_count,
+      @status, @created_at, @updated_at
+    )
+  `);
+  const insertMessage = db.prepare(`
+    INSERT INTO messages (id, topic_id, role, content, hidden, created_at)
+    VALUES (@id, @topic_id, @role, @content, @hidden, @created_at)
+  `);
+
+  const tx = db.transaction(() => {
+    db.exec("DELETE FROM messages");
+    db.exec("DELETE FROM topics");
+    db.exec("DELETE FROM sqlite_sequence WHERE name = 'messages'");
+
+    let maxId = 0;
+    for (const t of topics) {
+      insertTopic.run({
+        ...t,
+        thread_id: t.thread_id ?? null,
+        status: t.status ?? "active",
+      });
+    }
+    for (const m of messages) {
+      insertMessage.run({
+        ...m,
+        hidden: m.hidden ? 1 : 0,
+      });
+      if (m.id > maxId) maxId = m.id;
+    }
+
+    if (maxId > 0) {
+      db.prepare(
+        "INSERT INTO sqlite_sequence (name, seq) VALUES ('messages', ?)",
+      ).run(maxId);
+    }
+  });
+  tx();
+}
+
 export function addMessage(
   topicId: string,
   role: "user" | "assistant",

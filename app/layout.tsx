@@ -14,6 +14,21 @@ export const viewport: Viewport = {
   themeColor: "#0b0d12",
 };
 
+// Apply the user's saved theme as early as possible to avoid a dark/light
+// flash. Runs synchronously inside <body> before any React content paints.
+// Default is "dark" (matches the original design).
+const THEME_BOOT = `
+(function(){
+  try {
+    var t = localStorage.getItem('theme');
+    if (t !== 'light' && t !== 'dark') t = 'dark';
+    document.documentElement.setAttribute('data-theme', t);
+  } catch(_) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+`;
+
 // Defensive shim for wallet-extension injection (Brave Wallet / MetaMask).
 // They write to `window.ethereum.selectedAddress` on every page; if their
 // own bootstrap left `window.ethereum` undefined we get a Runtime TypeError
@@ -51,8 +66,9 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ja">
+    <html lang="ja" suppressHydrationWarning>
       <body>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
         <script dangerouslySetInnerHTML={{ __html: WALLET_SHIM }} />
         <div className="app-shell">
           <header className="app-header">
@@ -61,6 +77,13 @@ export default function RootLayout({
                 <Link href="/">📘 Textbook</Link>
               </div>
               <div className="app-header__spacer" />
+              <Link
+                className="btn btn--ghost btn--sm"
+                href="/settings"
+                aria-label="設定"
+              >
+                ⚙
+              </Link>
               <Link className="btn btn--primary btn--sm" href="/topics/new">
                 + 新規
               </Link>
