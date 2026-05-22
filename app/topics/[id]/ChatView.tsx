@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -174,7 +175,10 @@ export default function ChatView({
   const [freeText, setFreeText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Two-step delete: open the kebab menu first, then a confirm modal.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Server-side codex is async — `pending_user_message_id` on the topic tells
   // us a background call is in flight. `submitting` is the short blip while
@@ -449,14 +453,17 @@ export default function ChatView({
     send(content);
   }
 
-  async function remove() {
-    if (!confirmingDelete) {
-      setConfirmingDelete(true);
-      return;
+  async function performDelete() {
+    if (deleting) return;
+    setDeleting(true);
+    try {
+      await fetch(`/api/topics/${topicState.id}`, { method: "DELETE" });
+      router.push("/");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "削除に失敗しました");
+      setDeleting(false);
     }
-    await fetch(`/api/topics/${topicState.id}`, { method: "DELETE" });
-    router.push("/");
-    router.refresh();
   }
 
   function requestSummary() {
@@ -505,13 +512,39 @@ export default function ChatView({
               🗺 マップ
             </button>
           )}
-          <button
-            type="button"
-            className="btn btn--danger btn--sm"
-            onClick={remove}
-          >
-            {confirmingDelete ? "本当に削除？" : "削除"}
-          </button>
+          <div className="kebab">
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm kebab__toggle"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label="その他の操作"
+            >
+              ⋮
+            </button>
+            {menuOpen && (
+              <>
+                <div
+                  className="kebab__backdrop"
+                  onClick={() => setMenuOpen(false)}
+                />
+                <div className="kebab__menu" role="menu">
+                  <button
+                    type="button"
+                    className="kebab__item kebab__item--danger"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setDeleteConfirmOpen(true);
+                    }}
+                  >
+                    🗑 この題材を削除…
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
         <div className="chat-meta__goal">🎯 {topicState.goal}</div>
         <div className="progress" style={{ marginTop: 10 }}>
@@ -648,6 +681,61 @@ export default function ChatView({
           onSubmit={submitQuiz}
           sending={sending}
         />
+      )}
+
+      {deleteConfirmOpen && (
+        <div
+          className="modal-overlay"
+          onClick={() => !deleting && setDeleteConfirmOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="modal__title">この題材を削除しますか？</h2>
+            <p className="modal__body">
+              <strong>「{topicState.title}」</strong>
+              {" "}と、これまでの学習履歴（
+              {phaseGroups.length} Phase / {rounds.length} 問
+              ）を完全に削除します。
+              <br />
+              <span style={{ color: "var(--danger)" }}>
+                元に戻すことはできません。
+              </span>
+            </p>
+            <p className="modal__hint">
+              💡 残しておきたい場合は{" "}
+              <Link href="/settings">設定画面</Link>{" "}
+              からエクスポートしておけば、あとで復元できます。
+            </p>
+            <div className="modal__actions">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setDeleteConfirmOpen(false)}
+                disabled={deleting}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className="btn btn--danger-filled"
+                onClick={performDelete}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <>
+                    <span className="spinner" /> 削除中
+                  </>
+                ) : (
+                  "🗑 削除する"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

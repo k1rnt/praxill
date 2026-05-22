@@ -227,6 +227,18 @@ kbd {
   color: var(--danger);
 }
 
+.btn--danger-filled {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--danger-fg);
+  font-weight: 700;
+}
+
+.btn--danger-filled:hover {
+  background: var(--danger);
+  filter: brightness(0.95);
+}
+
 .btn--ghost {
   background: transparent;
   border-color: transparent;
@@ -433,6 +445,143 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* Kebab menu (small dropdown for dangerous / secondary actions) */
+.kebab {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.kebab__toggle {
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 4px 10px;
+  letter-spacing: 0.05em;
+}
+
+.kebab__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.kebab__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  min-width: 220px;
+  padding: 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  animation: slideDown 0.14s ease;
+}
+
+.kebab__item {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: var(--fg);
+  font-size: 0.92rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.kebab__item:hover {
+  background: var(--bg-elev-2);
+}
+
+.kebab__item--danger {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* Modal dialog (used for destructive confirms) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  padding-bottom: calc(20px + var(--safe-bottom));
+  animation: fadeIn 0.12s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 22px;
+  box-shadow: var(--shadow-card);
+  animation: modalIn 0.18s ease;
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modal__title {
+  font-size: 1.08rem;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.modal__body {
+  font-size: 0.92rem;
+  line-height: 1.65;
+  color: var(--fg);
+  margin-bottom: 12px;
+}
+
+.modal__hint {
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  background: var(--bg-elev-2);
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin-bottom: 18px;
+  line-height: 1.55;
+}
+
+.modal__hint a {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.modal__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 /* Phase-grouped sections */
