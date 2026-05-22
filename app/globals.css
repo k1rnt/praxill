@@ -2009,12 +2009,18 @@ kbd {
 
 .preview__generating {
   display: flex;
+  flex-direction: column;
   gap: 14px;
-  align-items: flex-start;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px 18px;
+}
+
+.preview__generating-head {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
 }
 
 .preview__generating .spinner {
@@ -2412,4 +2418,69 @@ kbd {
   .options {
     grid-template-columns: 1fr 1fr;
   }
+}
+
+.composer__progress {
+  padding: 4px 2px 0;
+}
+
+/* ----- Wait-screen progress bar --------------------------------------
+   Elements are <span> for HTML5 phrasing-content compatibility (the dock
+   variant lives inside <button><span>…</span></button>); display rules
+   here lay them out as flex/block. */
+.wait-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.wait-progress__bar {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  overflow: hidden;
+}
+
+.wait-progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  transition: width 0.25s ease-out;
+}
+
+.wait-progress__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.72rem;
+  opacity: 0.82;
+  font-variant-numeric: tabular-nums;
+}
+
+.wait-progress__time {
+  letter-spacing: 0.02em;
+}
+
+/* On the chat dock, the strip sits inside the gradient .start-quiz button,
+   so we keep the rail light/translucent (overrides above already do that). */
+
+/* On the preview-generating panel the surrounding background is the elevated
+   surface, so the rail needs more contrast and the fill should use the
+   accent rather than white. */
+.wait-progress--panel .wait-progress__bar {
+  background: var(--bg-elev-2);
+  height: 6px;
+}
+.wait-progress--panel .wait-progress__fill {
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+}
+.wait-progress--panel .wait-progress__meta {
+  color: var(--text-muted, currentColor);
+  opacity: 0.75;
 }

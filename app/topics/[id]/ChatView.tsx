@@ -18,6 +18,7 @@ import {
   type KnowledgeMap,
 } from "@/lib/parseKnowledgeMap";
 import KnowledgeMapEditor from "@/components/KnowledgeMapEditor";
+import { WaitProgress } from "@/components/WaitProgress";
 import {
   ChevronRight,
   Map as MapIcon,
@@ -654,16 +655,24 @@ export default function ChatView({
               <span className="start-quiz__body">
                 <span className="start-quiz__title">
                   {sending
-                    ? "問題を準備中… (20〜50秒)"
+                    ? "問題を準備中…"
                     : quiz.kind === "summary"
                       ? "まとめを解く"
                       : "問題を解く"}
                 </span>
-                <span className="start-quiz__sub">
-                  {quiz.number
-                    ? `Q${quiz.number}${quiz.title ? `. ${quiz.title}` : ""}`
-                    : quiz.title || "（タイトルなし）"}
-                </span>
+                {sending ? (
+                  <WaitProgress
+                    active={sending}
+                    label="Trainer が考え中…"
+                    variant="dock"
+                  />
+                ) : (
+                  <span className="start-quiz__sub">
+                    {quiz.number
+                      ? `Q${quiz.number}${quiz.title ? `. ${quiz.title}` : ""}`
+                      : quiz.title || "（タイトルなし）"}
+                  </span>
+                )}
               </span>
               <span className="start-quiz__chev" aria-hidden>
                 <ChevronRight size={22} strokeWidth={2.4} />
@@ -1281,6 +1290,11 @@ function FreeComposer({
           </button>
         ))}
       </div>
+      {sending && (
+        <div className="composer__progress">
+          <WaitProgress active={sending} label="Trainer が考え中…" variant="panel" />
+        </div>
+      )}
       <div className="composer__row">
         <span className="composer__hint">Ctrl/Cmd + Enter で送信</span>
         <button

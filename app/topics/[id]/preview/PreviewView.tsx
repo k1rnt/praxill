@@ -10,6 +10,7 @@ import {
   type KnowledgeMap,
 } from "@/lib/parseKnowledgeMap";
 import KnowledgeMapEditor from "@/components/KnowledgeMapEditor";
+import { WaitProgress } from "@/components/WaitProgress";
 
 export default function PreviewView({
   topic: initialTopic,
@@ -150,16 +151,24 @@ export default function PreviewView({
 
       {isGenerating ? (
         <div className="preview__generating">
-          <span className="spinner" />
-          <div>
-            <div className="preview__generating-title">
-              知識マップを準備中…
-            </div>
-            <div className="preview__generating-sub">
-              題材から逆算したマップを作っています。20〜50 秒ほどかかります。
-              この画面のまま待っていても、離れて戻ってきても大丈夫です。
+          <div className="preview__generating-head">
+            <span className="spinner" />
+            <div>
+              <div className="preview__generating-title">
+                知識マップを準備中…
+              </div>
+              <div className="preview__generating-sub">
+                題材から逆算したマップを作っています。20〜50 秒ほどかかります。
+                この画面のまま待っていても、離れて戻ってきても大丈夫です。
+              </div>
             </div>
           </div>
+          <WaitProgress
+            active={isGenerating}
+            expectedMs={35_000}
+            label="マップを生成中…"
+            variant="panel"
+          />
         </div>
       ) : /* Failed-draft recovery panel */ isFailed ? (
         <>
