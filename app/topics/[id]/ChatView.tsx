@@ -328,10 +328,14 @@ export default function ChatView({
 
   // The very first Trainer response always opens with a knowledge map
   // (knowledge map → first Q1). Strip the Q-block to keep just the map.
-  const knowledgeMapRaw = useMemo(
-    () => (firstAssistant ? stripLatestQuiz(firstAssistant.content) : ""),
-    [firstAssistant],
-  );
+  // Prefer the topic-level stored map (kept current by /finalize and
+  // /update-map). Fall back to parsing the first assistant message for
+  // legacy topics that pre-date the stored column.
+  const knowledgeMapRaw = useMemo(() => {
+    if (topicState.knowledge_map_markdown)
+      return topicState.knowledge_map_markdown;
+    return firstAssistant ? stripLatestQuiz(firstAssistant.content) : "";
+  }, [topicState.knowledge_map_markdown, firstAssistant]);
 
   const knowledgeMap: KnowledgeMap | null = useMemo(
     () => parseKnowledgeMap(knowledgeMapRaw),

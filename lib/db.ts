@@ -93,6 +93,12 @@ function init(db: Database.Database) {
     "UPDATE topics SET codex_lock = NULL WHERE codex_lock IS NOT NULL",
   );
 
+  // Stores the canonical knowledge map markdown so it survives map edits
+  // (which update Trainer's understanding via a hidden thread message but
+  // don't mutate the original assistant message). Null on legacy rows; the
+  // UI falls back to parsing the first assistant message for those.
+  ensureColumn(db, "topics", "knowledge_map_markdown", "TEXT");
+
   // Full-text search over message content. External-content mode + trigram
   // tokenizer — the trigram approach works well for CJK because it doesn't
   // depend on whitespace tokenization. Triggers keep the FTS index in lock
@@ -160,6 +166,7 @@ export type Topic = {
   status: TopicStatus;
   pending_user_message_id: number | null;
   codex_lock: string | null;
+  knowledge_map_markdown: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -216,6 +223,7 @@ export function updateTopic(
       | "status"
       | "pending_user_message_id"
       | "codex_lock"
+      | "knowledge_map_markdown"
     >
   >,
 ) {
@@ -438,11 +446,13 @@ export function replaceAll(topics: Topic[], messages: Message[]) {
     INSERT INTO topics (
       id, title, subject, goal, thread_id,
       current_phase, total_phases, correct_count, total_count,
-      status, pending_user_message_id, codex_lock, created_at, updated_at
+      status, pending_user_message_id, codex_lock,
+      knowledge_map_markdown, created_at, updated_at
     ) VALUES (
       @id, @title, @subject, @goal, @thread_id,
       @current_phase, @total_phases, @correct_count, @total_count,
-      @status, @pending_user_message_id, @codex_lock, @created_at, @updated_at
+      @status, @pending_user_message_id, @codex_lock,
+      @knowledge_map_markdown, @created_at, @updated_at
     )
   `);
   const insertMessage = db.prepare(`
@@ -465,6 +475,7 @@ export function replaceAll(topics: Topic[], messages: Message[]) {
         // import boundary.
         pending_user_message_id: null,
         codex_lock: null,
+        knowledge_map_markdown: t.knowledge_map_markdown ?? null,
       });
     }
     for (const m of messages) {

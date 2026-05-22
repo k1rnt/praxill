@@ -73,6 +73,7 @@ export async function POST(
       const parsed = parseKnowledgeMap(mapMarkdown);
       updateTopic(id, {
         total_phases: parsed?.phases.length,
+        knowledge_map_markdown: mapMarkdown,
       });
     });
 

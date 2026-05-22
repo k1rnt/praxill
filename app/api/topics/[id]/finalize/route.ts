@@ -84,6 +84,7 @@ export async function POST(
         status: "active",
         total_phases: totalPhases,
         current_phase: progress.currentPhase ?? 1,
+        knowledge_map_markdown: mapMarkdown,
       });
     });
 

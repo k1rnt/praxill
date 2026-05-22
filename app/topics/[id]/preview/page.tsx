@@ -14,21 +14,24 @@ export default async function PreviewPage(
   if (!topic) notFound();
   if (topic.status === "active") redirect(`/topics/${id}`);
 
-  const messages = listMessages(id);
-  const firstAssistant = messages.find((m) => m.role === "assistant");
-  if (!firstAssistant) {
-    return (
-      <main className="app-main">
-        <h1 className="page-title">知識マップの生成に失敗しました</h1>
-        <p className="page-subtitle">
-          題材を作り直すか、しばらく待ってからリトライしてください。
-        </p>
-      </main>
-    );
+  // Prefer the stored map column (so subsequent retries / restores see the
+  // right data without re-parsing). Fall back to extracting from the first
+  // assistant message for older drafts.
+  let knowledgeMapRaw: string | null = topic.knowledge_map_markdown ?? null;
+  if (!knowledgeMapRaw) {
+    const messages = listMessages(id);
+    const firstAssistant = messages.find((m) => m.role === "assistant");
+    if (
+      firstAssistant &&
+      !firstAssistant.content.startsWith("__codex error__")
+    ) {
+      knowledgeMapRaw = stripLatestQuiz(firstAssistant.content);
+    }
   }
 
-  const knowledgeMapRaw = stripLatestQuiz(firstAssistant.content);
-  const parsedMap = parseKnowledgeMap(knowledgeMapRaw);
+  const parsedMap = knowledgeMapRaw
+    ? parseKnowledgeMap(knowledgeMapRaw)
+    : null;
 
   return (
     <main className="app-main">
@@ -39,7 +42,7 @@ export default async function PreviewPage(
       <PreviewView
         topic={topic}
         initialMap={parsedMap}
-        fallbackRaw={knowledgeMapRaw}
+        fallbackRaw={knowledgeMapRaw ?? ""}
       />
     </main>
   );

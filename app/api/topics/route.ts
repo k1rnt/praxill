@@ -10,6 +10,7 @@ import {
 import { codexStart } from "@/lib/codex";
 import { buildDraftPrompt } from "@/lib/prompt";
 import { parseAssistantProgress } from "@/lib/progress";
+import { stripLatestQuiz } from "@/lib/parseQuiz";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -52,6 +53,7 @@ export async function POST(req: Request) {
       thread_id: result.threadId ?? undefined,
       current_phase: 1,
       total_phases: progress.totalPhases,
+      knowledge_map_markdown: stripLatestQuiz(result.text),
     });
     return NextResponse.json({ topic: getTopic(id) });
   } catch (err) {
