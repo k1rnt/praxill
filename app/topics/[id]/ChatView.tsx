@@ -241,11 +241,19 @@ export default function ChatView({
       setMessages((m) => [...m, optimistic]);
     }
 
+    let reasoning: "medium" | "high" | undefined;
+    try {
+      const stored = localStorage.getItem("reasoning");
+      if (stored === "medium" || stored === "high") reasoning = stored;
+    } catch {
+      // localStorage may be unavailable in private mode — fall back to default
+    }
+
     try {
       const res = await fetch(`/api/topics/${topicState.id}/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, hidden }),
+        body: JSON.stringify({ content, hidden, reasoning }),
       });
       const data = (await res.json()) as {
         message?: Message;
@@ -580,7 +588,7 @@ function RoundCard({
                 <span />
                 <span />
               </span>
-              <span>Trainer が考え中… (15〜30秒)</span>
+              <span>Trainer が問題を吟味中… (20〜50秒)</span>
             </div>
           )}
         </div>

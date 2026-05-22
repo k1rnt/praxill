@@ -15,6 +15,7 @@ type ImportPreview = {
 export default function SettingsView() {
   const router = useRouter();
   const [theme, setTheme] = useState<Theme>("dark");
+  const [fastMode, setFastMode] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
@@ -28,6 +29,11 @@ export default function SettingsView() {
       (document.documentElement.getAttribute("data-theme") as Theme | null) ??
       "dark";
     setTheme(current);
+    try {
+      setFastMode(localStorage.getItem("reasoning") === "medium");
+    } catch {
+      // ignore
+    }
     setMounted(true);
   }, []);
 
@@ -38,6 +44,15 @@ export default function SettingsView() {
       localStorage.setItem("theme", next);
     } catch {
       // localStorage may throw in private mode — non-fatal
+    }
+  }
+
+  function applyFastMode(on: boolean) {
+    setFastMode(on);
+    try {
+      localStorage.setItem("reasoning", on ? "medium" : "high");
+    } catch {
+      // non-fatal
     }
   }
 
@@ -143,6 +158,25 @@ export default function SettingsView() {
             onChange={(on) => applyTheme(on ? "dark" : "light")}
             disabled={!mounted}
             ariaLabel="ダークモード切り替え"
+          />
+        </div>
+      </section>
+
+      <section className="settings__section">
+        <h2 className="settings__heading">出題</h2>
+        <div className="settings__row">
+          <div>
+            <div className="settings__row-title">🚀 高速モード</div>
+            <div className="settings__row-sub">
+              ON にすると 1問あたり 15〜25 秒で返答が来ます。
+              OFF（デフォルト）は選択肢の質を優先し 20〜50 秒かけて吟味します。
+            </div>
+          </div>
+          <ToggleSwitch
+            checked={fastMode}
+            onChange={applyFastMode}
+            disabled={!mounted}
+            ariaLabel="高速モード切り替え"
           />
         </div>
       </section>

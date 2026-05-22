@@ -12,7 +12,11 @@ export async function POST(
   ctx: RouteContext<"/api/topics/[id]/answer">,
 ) {
   const { id } = await ctx.params;
-  const body = (await req.json()) as { content?: string; hidden?: boolean };
+  const body = (await req.json()) as {
+    content?: string;
+    hidden?: boolean;
+    reasoning?: string;
+  };
   const content = body.content?.trim();
   if (!content) {
     return NextResponse.json({ error: "content is required" }, { status: 400 });
@@ -22,6 +26,14 @@ export async function POST(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
+  // Per-request reasoning override (lets the user pick "fast" or "quality"
+  // from the settings page). Falls back to the env-driven default in codex.ts
+  // when the value is unrecognised.
+  const reasoning =
+    body.reasoning === "medium" || body.reasoning === "high"
+      ? body.reasoning
+      : undefined;
+
   // hidden=true is used for meta requests (e.g. "📚 まとめ" button) so the
   // user-visible round structure isn't polluted by the request text. The
   // Trainer's reply, which carries the new quiz, stays visible.
@@ -29,8 +41,8 @@ export async function POST(
 
   try {
     const result = topic.thread_id
-      ? await codexResume(topic.thread_id, content)
-      : await codexStart(content);
+      ? await codexResume(topic.thread_id, content, reasoning)
+      : await codexStart(content, reasoning);
 
     const message = addMessage(id, "assistant", result.text);
     const progress = parseAssistantProgress(result.text, false);

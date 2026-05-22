@@ -75,23 +75,33 @@ function runCodex(args: string[], prompt: string): Promise<CodexResult> {
   });
 }
 
-const COMMON_ARGS = [
-  "--dangerously-bypass-approvals-and-sandbox",
-  "--skip-git-repo-check",
-  "--json",
-  "-m",
-  MODEL,
-  "-c",
-  `model_reasoning_effort="${REASONING}"`,
-];
+function buildArgs(reasoning?: string): string[] {
+  const level = reasoning || REASONING;
+  return [
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--skip-git-repo-check",
+    "--json",
+    "-m",
+    MODEL,
+    "-c",
+    `model_reasoning_effort="${level}"`,
+  ];
+}
 
-export function codexStart(prompt: string): Promise<CodexResult> {
-  return runCodex(["exec", ...COMMON_ARGS], prompt);
+export function codexStart(
+  prompt: string,
+  reasoning?: string,
+): Promise<CodexResult> {
+  return runCodex(["exec", ...buildArgs(reasoning)], prompt);
 }
 
 export function codexResume(
   threadId: string,
   prompt: string,
+  reasoning?: string,
 ): Promise<CodexResult> {
-  return runCodex(["exec", "resume", threadId, ...COMMON_ARGS], prompt);
+  return runCodex(
+    ["exec", "resume", threadId, ...buildArgs(reasoning)],
+    prompt,
+  );
 }
