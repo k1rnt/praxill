@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { replaceAll, type Message, type Topic } from "@/lib/db";
+import {
+  getLocalInstanceId,
+  replaceAll,
+  type Message,
+  type Topic,
+} from "@/lib/db";
 import { cancelAllCodexCalls } from "@/lib/codex";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +12,7 @@ export const dynamic = "force-dynamic";
 type ImportPayload = {
   format?: string;
   version?: number;
+  source_instance_id?: string;
   topics?: unknown;
   messages?: unknown;
 };
@@ -92,7 +98,7 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  if (body.version !== 1) {
+  if (body.version !== 1 && body.version !== 2) {
     return NextResponse.json(
       { error: `未対応の version です (${body.version})` },
       { status: 400 },
@@ -104,6 +110,24 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+
+  // Foreign-source detection (v2 only). When the export came from another
+  // installation, the codex sessions referenced by thread_id don't exist
+  // on this machine — invalidate them so the next /answer rehydrates a
+  // fresh thread from the transcript.
+  //
+  // v1 backups predate this concept, so be conservative: keep thread_id
+  // as-is and rely on the runtime resume-failure fallback (added in step
+  // 5-6) to recover when the session genuinely doesn't exist locally.
+  const localInstanceId = getLocalInstanceId();
+  const sourceInstanceId =
+    typeof body.source_instance_id === "string"
+      ? body.source_instance_id
+      : null;
+  const isForeignSource =
+    body.version === 2 &&
+    sourceInstanceId !== null &&
+    sourceInstanceId !== localInstanceId;
 
   // All-or-nothing validation — refuse partial restore that would silently
   // discard rows or, worse, overwrite the user's current data with a
@@ -150,12 +174,24 @@ export async function POST(req: Request) {
     messages.push(v);
   }
 
+  // Drop thread_id + thread_owner_instance_id on topics that came from a
+  // different installation. The transcript itself is preserved, and the
+  // /answer route will codexStart a fresh thread from the rehydration
+  // prompt on the next interaction.
+  const finalTopics = isForeignSource
+    ? topics.map((t) => ({
+        ...t,
+        thread_id: null,
+        thread_owner_instance_id: null,
+      }))
+    : topics;
+
   // Kill any in-flight codex calls so their background completions can't
   // race with the replaceAll() truncate+insert below.
   cancelAllCodexCalls();
 
   try {
-    replaceAll(topics, messages);
+    replaceAll(finalTopics, messages);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
@@ -171,5 +207,6 @@ export async function POST(req: Request) {
       messages: messages.length,
       droppedMessages: 0,
     },
+    foreignSource: isForeignSource,
   });
 }
