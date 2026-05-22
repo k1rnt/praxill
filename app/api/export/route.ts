@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listMessages, listTopics } from "@/lib/db";
+import { getLocalInstanceId, listMessages, listTopics } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -11,9 +11,14 @@ export async function GET() {
     listMessages(t.id, { includeHidden: true }),
   );
 
+  // version 2 adds source_instance_id at the top + thread_owner_instance_id
+  // per topic (already on each topic row). The importer uses these to
+  // decide whether thread_id can be reused (same machine) or must be
+  // invalidated so the next /answer rehydrates a fresh codex thread.
   const payload = {
     format: "praxill",
-    version: 1,
+    version: 2,
+    source_instance_id: getLocalInstanceId(),
     exported_at: new Date().toISOString(),
     counts: { topics: topics.length, messages: messages.length },
     topics,
