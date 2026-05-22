@@ -43,21 +43,52 @@ export default function Home() {
         <div className="topics">
           {topics.map((t) => {
             const { pct, phaseLabel, accuracyLabel } = progressPercent(t);
+            const isDraft = t.status === "draft";
+            const href = isDraft
+              ? `/topics/${t.id}/preview`
+              : `/topics/${t.id}`;
             return (
-              <Link
-                key={t.id}
-                href={`/topics/${t.id}`}
-                className="topic-card"
-              >
-                <div className="topic-card__title">{t.title}</div>
-                <div className="topic-card__goal">{t.goal}</div>
-                <div className="progress">
-                  <span className="progress__label">{phaseLabel}</span>
-                  <div className="progress__bar">
-                    <div className="progress__fill" style={{ width: `${pct}%` }} />
-                  </div>
-                  <span className="progress__label">{accuracyLabel}</span>
+              <Link key={t.id} href={href} className="topic-card">
+                <div className="topic-card__title">
+                  {t.title}
+                  {isDraft && (
+                    <span
+                      style={{
+                        marginLeft: 8,
+                        fontSize: "0.7rem",
+                        padding: "3px 8px",
+                        borderRadius: 999,
+                        background: "var(--bg-elev-2)",
+                        color: "var(--fg-muted)",
+                        fontWeight: 600,
+                        verticalAlign: "middle",
+                      }}
+                    >
+                      下書き
+                    </span>
+                  )}
                 </div>
+                <div className="topic-card__goal">{t.goal}</div>
+                {!isDraft && (
+                  <div className="progress">
+                    <span className="progress__label">{phaseLabel}</span>
+                    <div className="progress__bar">
+                      <div
+                        className="progress__fill"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                    <span className="progress__label">{accuracyLabel}</span>
+                  </div>
+                )}
+                {isDraft && (
+                  <div
+                    className="progress__label"
+                    style={{ marginTop: 8, fontSize: "0.78rem" }}
+                  >
+                    知識マップを確認してから学習を始められます
+                  </div>
+                )}
               </Link>
             );
           })}

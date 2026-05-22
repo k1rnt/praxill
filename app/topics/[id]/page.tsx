@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { getTopic, listMessages } from "@/lib/db";
 import ChatView from "./ChatView";
@@ -9,6 +9,7 @@ export default async function TopicPage(props: PageProps<"/topics/[id]">) {
   const { id } = await props.params;
   const topic = getTopic(id);
   if (!topic) notFound();
+  if (topic.status === "draft") redirect(`/topics/${id}/preview`);
   const messages = listMessages(id);
 
   return (

@@ -413,6 +413,60 @@ kbd {
   box-shadow: 0 0 0 1px var(--accent-soft);
 }
 
+/* Result-tinted card (whole row stays colored even when collapsed) */
+.round--correct {
+  border-color: var(--success);
+  background: linear-gradient(
+    90deg,
+    rgba(93, 212, 160, 0.1) 0%,
+    rgba(93, 212, 160, 0.04) 30%,
+    var(--bg-elev) 60%
+  );
+}
+
+.round--incorrect {
+  border-color: var(--danger);
+  background: linear-gradient(
+    90deg,
+    rgba(247, 140, 140, 0.1) 0%,
+    rgba(247, 140, 140, 0.04) 30%,
+    var(--bg-elev) 60%
+  );
+}
+
+/* When a result is known, let it override the "latest" accent tint */
+.round--correct.round--latest,
+.round--incorrect.round--latest {
+  box-shadow: none;
+}
+
+/* Colored stripe on the left so it's recognisable in a long scroll */
+.round--correct::before,
+.round--incorrect::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+.round--correct {
+  position: relative;
+}
+
+.round--incorrect {
+  position: relative;
+}
+
+.round--correct::before {
+  background: var(--success);
+}
+
+.round--incorrect::before {
+  background: var(--danger);
+}
+
 .round__header {
   display: flex;
   align-items: center;
@@ -477,22 +531,27 @@ kbd {
 
 .round__chip {
   flex: 0 0 auto;
-  font-size: 0.74rem;
-  font-weight: 700;
-  padding: 4px 9px;
+  font-size: 0.8rem;
+  font-weight: 800;
+  padding: 6px 11px;
   border-radius: 999px;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .round__chip--correct {
-  background: rgba(93, 212, 160, 0.18);
-  color: var(--success);
+  background: var(--success);
+  color: #0b1410;
+  box-shadow: 0 1px 8px rgba(93, 212, 160, 0.35);
 }
 
 .round__chip--incorrect {
-  background: rgba(247, 140, 140, 0.15);
-  color: var(--danger);
+  background: var(--danger);
+  color: #2a0d0d;
+  box-shadow: 0 1px 8px rgba(247, 140, 140, 0.35);
 }
 
 .round__chip--pending {
@@ -1103,6 +1162,177 @@ kbd {
   line-height: 1.6;
   color: var(--fg);
   white-space: pre-wrap;
+}
+
+/* Knowledge map — edit mode */
+.kmap-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.kmap-editor__phase {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kmap-editor__phase-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kmap-editor__phase-input {
+  flex: 1;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  font-size: 16px;
+  font-family: inherit;
+  font-weight: 600;
+  outline: none;
+}
+
+.kmap-editor__phase-input:focus {
+  border-color: var(--accent);
+}
+
+.kmap-editor__icon-btn {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  touch-action: manipulation;
+}
+
+.kmap-editor__icon-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.kmap-editor__icon-btn--danger {
+  color: var(--danger);
+  border-color: rgba(247, 140, 140, 0.4);
+}
+
+.kmap-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kmap-editor__label {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.kmap-editor__input,
+.kmap-editor__textarea {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  font-size: 16px;
+  font-family: inherit;
+  outline: none;
+}
+
+.kmap-editor__input:focus,
+.kmap-editor__textarea:focus {
+  border-color: var(--accent);
+}
+
+.kmap-editor__textarea {
+  resize: vertical;
+  min-height: 60px;
+  line-height: 1.5;
+}
+
+.kmap-editor__add {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1.5px dashed var(--border-strong);
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.92rem;
+  font-weight: 600;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.kmap-editor__add:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Preview page (creation flow) */
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.preview__meta {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.preview__title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.preview__goal {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+
+.preview__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.preview__count {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.preview__actions {
+  margin-top: 8px;
+}
+
+.preview__raw-text {
+  white-space: pre-wrap;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 0.82rem;
+  font-family: "JetBrains Mono", monospace;
+  overflow-x: auto;
 }
 
 /* Full-screen quiz overlay (active quiz mode) */

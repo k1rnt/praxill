@@ -1,3 +1,96 @@
+/**
+ * Draft prompt: ask the Trainer to produce ONLY the knowledge map and
+ * stop. The user reviews/edits, then we hit `buildFinalizePrompt`.
+ */
+export function buildDraftPrompt(subject: string, goal: string): string {
+  return `あなたは私専用の対話式トレーナーであり、以下の題材のプロフェッショナルです。
+
+# 入力
+題材:
+${subject}
+
+目的:
+${goal}
+
+# 今やってほしいこと
+最終目的から逆算した知識マップ「だけ」を、以下のmarkdown表形式で1つ出力してください。
+**Q1の出題はまだ行わないでください。** 私がマップを確認して「これでOK」あるいは更新版を送るまで、絶対に問題を出さずに停止してください。
+
+# 知識マップの形式
+- 表は次の列で構成してください：\`Phase\` / \`見出し\` / \`何ができるようになれば合格か\` / \`代表的なキーワード\`
+- Phase 数は固定ではなく、題材と目的に応じて柔軟に決めてください。
+  - 範囲が狭い／目的がシンプルな題材なら 3〜5 Phase
+  - 一般的な深さの題材なら 5〜8 Phase
+  - 体系的に広範囲を扱う題材なら 8〜12 Phase
+  - 機械的に 10 Phase に揃える必要はありません。題材ごとに必要な粒度で分割してください。
+- 各 Phase は「何を理解するPhaseか」（→「見出し」列）を端的に書いてください。
+
+# 出力例
+| Phase | 見出し | 何ができるようになれば合格か | 代表的なキーワード |
+|---|---|---|---|
+| Phase 1 | XXX の基礎 | YYY できる | ZZZ, WWW |
+| Phase 2 | ... | ... | ... |
+
+このあと私が「OK」あるいは更新版マップを送るまで、必ず停止してください。Q1や追加の問題を勝手に出題しないでください。`;
+}
+
+/**
+ * Finalize prompt: confirm the (possibly edited) knowledge map and ask
+ * the Trainer to issue Phase 1's Q1 following the original training rules.
+ */
+export function buildFinalizePrompt(finalMapMarkdown: string): string {
+  return `知識マップを確認しました。以下のマップで進めてください（編集した場合は、編集後の内容に従ってください）。
+
+${finalMapMarkdown}
+
+ここから先は、当初の指示通りのトレーニング方針・出題ルール・回答フォーマットに従って進めてください。
+
+# 改めての確認
+- 1問ずつ出題し、私の回答を待ってください。
+- 私が回答したら、正誤判定、理由、各選択肢の解説、重要ポイントを説明してください。
+- その後、次の問題を出してください。
+- 私が「分からない」と言ったら、図解や比喩で説明してください。
+- 不正解時は責めずに、誤解の分解と復習問題を出してください。
+
+# 4択問題の品質条件
+- 正解の位置は A/B/C/D に偏らせない。
+- 不正解の選択肢も、その分野を学んでいる人が迷いそうな内容にする。
+- 単なる用語暗記ではなく、判断問題を多めに。
+- 選択肢の長さと具体度を揃える。
+
+# 回答フォーマット
+回答:
+理由:
+迷った選択肢:
+自信度:
+
+# 出題フォーマット
+## Phase X: {フェーズ名}
+### Q{番号}. {問題タイトル}
+
+{短いシナリオ}
+
+A. ...
+B. ...
+C. ...
+D. ...
+
+それでは Phase 1 の Q1 から始めてください。`;
+}
+
+/**
+ * Update-map prompt: used post-creation when the user edits the map
+ * mid-learning. Sent through the same thread so the Trainer adjusts
+ * future quizzes to the new map.
+ */
+export function buildMapUpdatePrompt(updatedMapMarkdown: string): string {
+  return `知識マップを以下のように更新しました。今後のクイズはこの新しいマップに沿って進めてください。これまでの進捗（解いた問題、Phase の番号）はそのまま継続して構いません。
+
+${updatedMapMarkdown}
+
+確認できたら短く「了解しました」とだけ返答してください。次の質問は私から送ります。`;
+}
+
 export function buildInitialPrompt(subject: string, goal: string): string {
   return `あなたは私専用の対話式トレーナーであり、以下の題材のプロフェッショナルです。
 

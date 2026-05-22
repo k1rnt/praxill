@@ -30,7 +30,7 @@ export default function NewTopicForm() {
         setSubmitting(false);
         return;
       }
-      router.push(`/topics/${data.topic.id}`);
+      router.push(`/topics/${data.topic.id}/preview`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "ネットワークエラー");
       setSubmitting(false);
@@ -87,12 +87,12 @@ export default function NewTopicForm() {
               <span className="spinner" /> 知識マップ生成中…
             </>
           ) : (
-            "作成して開始"
+            "知識マップを生成"
           )}
         </button>
       </div>
       <p className="form__hint" style={{ textAlign: "right" }}>
-        生成には 30〜120 秒ほどかかります。
+        マップ生成に 15〜30 秒ほどかかります。次の画面で確認・編集できます。
       </p>
     </form>
   );

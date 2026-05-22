@@ -8,7 +8,7 @@ import {
   updateTopic,
 } from "@/lib/db";
 import { codexStart } from "@/lib/codex";
-import { buildInitialPrompt } from "@/lib/prompt";
+import { buildDraftPrompt } from "@/lib/prompt";
 import { parseAssistantProgress } from "@/lib/progress";
 
 export const dynamic = "force-dynamic";
@@ -35,10 +35,14 @@ export async function POST(req: Request) {
   }
 
   const id = randomUUID();
-  const topic = createTopic({ id, title, subject, goal });
+  // Draft status — topic is not yet "active" until the user confirms the map
+  // via /api/topics/[id]/finalize.
+  createTopic({ id, title, subject, goal, status: "draft" });
 
-  const prompt = buildInitialPrompt(subject, goal);
-  addMessage(id, "user", prompt);
+  const prompt = buildDraftPrompt(subject, goal);
+  // The bootstrap prompt is verbose meta-instruction, not learning content;
+  // hide it from the chat scrollback once we go active.
+  addMessage(id, "user", prompt, true);
 
   try {
     const result = await codexStart(prompt);
@@ -46,7 +50,7 @@ export async function POST(req: Request) {
     const progress = parseAssistantProgress(result.text, true);
     updateTopic(id, {
       thread_id: result.threadId ?? undefined,
-      current_phase: progress.currentPhase,
+      current_phase: 1,
       total_phases: progress.totalPhases,
     });
     return NextResponse.json({ topic: getTopic(id) });
@@ -54,7 +58,7 @@ export async function POST(req: Request) {
     const message = err instanceof Error ? err.message : String(err);
     addMessage(id, "assistant", `__codex error__\n\n${message}`);
     return NextResponse.json(
-      { topic, error: message },
+      { topic: getTopic(id), error: message },
       { status: 500 },
     );
   }

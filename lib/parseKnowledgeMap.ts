@@ -72,3 +72,57 @@ export function parseKnowledgeMap(text: string): KnowledgeMap | null {
 
   return { intro, phases, trailing };
 }
+
+const DEFAULT_HEADERS = [
+  "Phase",
+  "何を理解するPhaseか",
+  "何ができるようになれば合格か",
+  "代表的なキーワード",
+];
+
+/**
+ * Build a markdown representation of a knowledge map. Used when sending a
+ * (possibly edited) map back to the Trainer.
+ */
+export function serializeKnowledgeMap(
+  map: KnowledgeMap,
+  fieldLabels?: string[],
+): string {
+  const labels = (() => {
+    const fromMap = map.phases[0]?.fields.map((f) => f.label) ?? [];
+    return fieldLabels && fieldLabels.length === fromMap.length
+      ? fieldLabels
+      : fromMap.length > 0
+        ? fromMap
+        : DEFAULT_HEADERS.slice(2);
+  })();
+
+  const header = ["Phase", "見出し", ...labels];
+  const sep = header.map(() => "---");
+
+  const rows = map.phases.map((p) => {
+    const cells = [p.phase, p.headline, ...p.fields.map((f) => f.value)];
+    // Pad if fields shorter than label list
+    while (cells.length < header.length) cells.push("");
+    return cells;
+  });
+
+  const lines: string[] = [];
+  if (map.intro) lines.push(map.intro, "");
+  lines.push("| " + header.join(" | ") + " |");
+  lines.push("|" + sep.map((s) => `${s}`).join("|") + "|");
+  for (const r of rows) lines.push("| " + r.join(" | ") + " |");
+  if (map.trailing) {
+    lines.push("");
+    lines.push(map.trailing);
+  }
+  return lines.join("\n");
+}
+
+export function emptyPhaseRow(phase: string, labels: string[]): PhaseRow {
+  return {
+    phase,
+    headline: "",
+    fields: labels.map((label) => ({ label, value: "" })),
+  };
+}

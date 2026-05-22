@@ -13,8 +13,10 @@ import {
 } from "@/lib/parseQuiz";
 import {
   parseKnowledgeMap,
+  serializeKnowledgeMap,
   type KnowledgeMap,
 } from "@/lib/parseKnowledgeMap";
+import KnowledgeMapEditor from "@/components/KnowledgeMapEditor";
 
 type Round = {
   user: Message;
@@ -224,6 +226,7 @@ export default function ChatView({
       topic_id: topicState.id,
       role: "user",
       content,
+      hidden: 0,
       created_at: new Date().toISOString(),
     };
     setMessages((m) => [...m, optimistic]);
@@ -373,11 +376,15 @@ export default function ChatView({
 
       {mapMode && (
         <MapOverlay
+          topicId={topicState.id}
           map={knowledgeMap}
           rawFallback={knowledgeMapRaw}
           openPhases={openPhases}
           togglePhase={togglePhase}
           onClose={() => setMapMode(false)}
+          onMapUpdated={(updatedTopic) => {
+            if (updatedTopic) setTopicState(updatedTopic);
+          }}
         />
       )}
 
@@ -420,7 +427,17 @@ function RoundCard({
   const pending = round.assistant === null;
 
   return (
-    <div className={`round ${isOpen ? "round--open" : ""} ${isLatest ? "round--latest" : ""}`}>
+    <div
+      className={[
+        "round",
+        isOpen && "round--open",
+        isLatest && "round--latest",
+        result === "correct" && "round--correct",
+        result === "incorrect" && "round--incorrect",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <button
         type="button"
         className="round__header"
@@ -499,33 +516,125 @@ function RoundCard({
 }
 
 function MapOverlay({
+  topicId,
   map,
   rawFallback,
   openPhases,
   togglePhase,
   onClose,
+  onMapUpdated,
 }: {
+  topicId: string;
   map: KnowledgeMap | null;
   rawFallback: string;
   openPhases: Set<string>;
   togglePhase: (phase: string) => void;
   onClose: () => void;
+  onMapUpdated: (topic: Topic | undefined) => void;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<KnowledgeMap | null>(map);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  function enterEdit() {
+    setDraft(map);
+    setSaveError(null);
+    setEditing(true);
+  }
+
+  function cancelEdit() {
+    setDraft(map);
+    setEditing(false);
+    setSaveError(null);
+  }
+
+  async function save() {
+    if (saving || !draft) return;
+    setSaving(true);
+    setSaveError(null);
+    const markdown = serializeKnowledgeMap(draft);
+    try {
+      const res = await fetch(`/api/topics/${topicId}/update-map`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mapMarkdown: markdown }),
+      });
+      const data = (await res.json()) as {
+        topic?: Topic;
+        error?: string;
+      };
+      if (!res.ok) {
+        setSaveError(data.error ?? "保存に失敗しました");
+        setSaving(false);
+        return;
+      }
+      onMapUpdated(data.topic);
+      setEditing(false);
+      setSaving(false);
+      onClose();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "ネットワークエラー");
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="map-overlay" role="dialog" aria-modal="true">
       <div className="map-overlay__header">
         <button
           type="button"
           className="map-overlay__back"
-          onClick={onClose}
-          aria-label="戻る"
+          onClick={editing ? cancelEdit : onClose}
+          aria-label={editing ? "編集をキャンセル" : "戻る"}
+          disabled={saving}
         >
-          ← 戻る
+          {editing ? "× キャンセル" : "← 戻る"}
         </button>
         <span className="map-overlay__title">🗺 知識マップ</span>
+        {map && !editing && (
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={enterEdit}
+          >
+            ✏ 編集
+          </button>
+        )}
       </div>
+
       <div className="map-overlay__body">
-        {map ? (
+        {editing && draft ? (
+          <>
+            <p
+              style={{
+                color: "var(--fg-muted)",
+                fontSize: "0.85rem",
+                marginBottom: 14,
+              }}
+            >
+              編集後「保存」を押すと、Trainer に更新を伝えて以降のクイズに反映します（10〜20秒）。
+            </p>
+            <KnowledgeMapEditor map={draft} onChange={setDraft} />
+            {saveError && <div className="error">{saveError}</div>}
+            <div style={{ marginTop: 18 }}>
+              <button
+                type="button"
+                className="btn btn--primary btn--block"
+                onClick={save}
+                disabled={saving || draft.phases.length === 0}
+              >
+                {saving ? (
+                  <>
+                    <span className="spinner" /> 反映中…
+                  </>
+                ) : (
+                  "保存して反映"
+                )}
+              </button>
+            </div>
+          </>
+        ) : map ? (
           <div className="kmap">
             {map.intro && <div className="kmap__intro">{map.intro}</div>}
             {map.phases.map((p) => {
@@ -562,7 +671,6 @@ function MapOverlay({
             })}
           </div>
         ) : rawFallback ? (
-          // Couldn't parse a table — fall back to plain markdown rendering
           <div className="markdown">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
               {rawFallback}

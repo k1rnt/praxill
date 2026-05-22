@@ -18,6 +18,18 @@ declare global {
   var __textbookDb: Database.Database | undefined;
 }
 
+function ensureColumn(
+  db: Database.Database,
+  table: string,
+  column: string,
+  decl: string,
+) {
+  const info = db.pragma(`table_info(${table})`) as Array<{ name: string }>;
+  if (!info.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+  }
+}
+
 function init(db: Database.Database) {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -32,6 +44,7 @@ function init(db: Database.Database) {
       total_phases INTEGER NOT NULL DEFAULT 0,
       correct_count INTEGER NOT NULL DEFAULT 0,
       total_count INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -40,11 +53,15 @@ function init(db: Database.Database) {
       topic_id TEXT NOT NULL,
       role TEXT NOT NULL,
       content TEXT NOT NULL,
+      hidden INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_messages_topic ON messages(topic_id, id);
   `);
+  // Migrate older databases that pre-date status / hidden columns
+  ensureColumn(db, "topics", "status", "TEXT NOT NULL DEFAULT 'active'");
+  ensureColumn(db, "messages", "hidden", "INTEGER NOT NULL DEFAULT 0");
 }
 
 export function getDb(): Database.Database {
@@ -56,6 +73,8 @@ export function getDb(): Database.Database {
   return db;
 }
 
+export type TopicStatus = "draft" | "active";
+
 export type Topic = {
   id: string;
   title: string;
@@ -66,6 +85,7 @@ export type Topic = {
   total_phases: number;
   correct_count: number;
   total_count: number;
+  status: TopicStatus;
   created_at: string;
   updated_at: string;
 };
@@ -75,6 +95,7 @@ export type Message = {
   topic_id: string;
   role: "user" | "assistant";
   content: string;
+  hidden: 0 | 1;
   created_at: string;
 };
 
@@ -95,14 +116,15 @@ export function createTopic(t: {
   title: string;
   subject: string;
   goal: string;
+  status?: TopicStatus;
 }): Topic {
   const now = new Date().toISOString();
   getDb()
     .prepare(
-      `INSERT INTO topics (id, title, subject, goal, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO topics (id, title, subject, goal, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(t.id, t.title, t.subject, t.goal, now, now);
+    .run(t.id, t.title, t.subject, t.goal, t.status ?? "active", now, now);
   return getTopic(t.id)!;
 }
 
@@ -117,6 +139,7 @@ export function updateTopic(
       | "correct_count"
       | "total_count"
       | "title"
+      | "status"
     >
   >,
 ) {
@@ -140,26 +163,29 @@ export function deleteTopic(id: string) {
   getDb().prepare("DELETE FROM topics WHERE id = ?").run(id);
 }
 
-export function listMessages(topicId: string): Message[] {
-  return getDb()
-    .prepare(
-      "SELECT * FROM messages WHERE topic_id = ? ORDER BY id ASC",
-    )
-    .all(topicId) as Message[];
+export function listMessages(
+  topicId: string,
+  opts: { includeHidden?: boolean } = {},
+): Message[] {
+  const sql = opts.includeHidden
+    ? "SELECT * FROM messages WHERE topic_id = ? ORDER BY id ASC"
+    : "SELECT * FROM messages WHERE topic_id = ? AND hidden = 0 ORDER BY id ASC";
+  return getDb().prepare(sql).all(topicId) as Message[];
 }
 
 export function addMessage(
   topicId: string,
   role: "user" | "assistant",
   content: string,
+  hidden: boolean = false,
 ): Message {
   const now = new Date().toISOString();
   const info = getDb()
     .prepare(
-      `INSERT INTO messages (topic_id, role, content, created_at)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO messages (topic_id, role, content, hidden, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
     )
-    .run(topicId, role, content, now);
+    .run(topicId, role, content, hidden ? 1 : 0, now);
   return getDb()
     .prepare("SELECT * FROM messages WHERE id = ?")
     .get(info.lastInsertRowid) as Message;
