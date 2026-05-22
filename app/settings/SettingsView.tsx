@@ -89,7 +89,7 @@ export default function SettingsView() {
       if (data.format !== "praxill" && data.format !== "personal-textbook") {
         throw new Error("praxill 形式ではありません");
       }
-      if (data.version !== 1) {
+      if (data.version !== 1 && data.version !== 2) {
         throw new Error(`未対応の version です (${data.version})`);
       }
       const topics = Array.isArray(data.topics) ? data.topics : [];
