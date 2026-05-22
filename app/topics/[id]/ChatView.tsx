@@ -275,6 +275,15 @@ export default function ChatView({
     router.refresh();
   }
 
+  function requestSummary() {
+    send(
+      "ここまでのPhaseの総まとめ問題を1問出題してください。" +
+        "Phase内の複数の概念を組み合わせて判断させる問題にしてください。" +
+        "出題タイトルは「Phase X まとめ問題」のように、通常問題と区別できるようにしてください。" +
+        "今後も、Phase が切り替わる前に必ずまとめ問題を挟んでください。",
+    );
+  }
+
   const pct = progressPercent(topicState);
   const phaseLabel =
     topicState.total_phases > 0
@@ -290,6 +299,16 @@ export default function ChatView({
       <div className="chat-meta">
         <div className="chat-meta__row">
           <div className="chat-meta__title">{topicState.title}</div>
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={requestSummary}
+            disabled={sending}
+            aria-label="まとめ問題を出題"
+            title="現在のPhaseのまとめ問題をリクエスト"
+          >
+            📚 まとめ
+          </button>
           {knowledgeMapRaw && (
             <button
               type="button"
