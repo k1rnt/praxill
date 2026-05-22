@@ -142,6 +142,111 @@ ${updatedMapMarkdown}
 確認できたら短く「了解しました」とだけ返答してください。次の質問は私から送ります。`;
 }
 
+/**
+ * Build a prompt that bootstraps a brand-new codex thread with all the
+ * context required to continue an in-progress topic. Used when:
+ *   - A topic was imported from another installation (thread_id was null
+ *     because the codex session lives on the original machine).
+ *   - The local codex session is gone (`~/.codex/sessions` cleared) and
+ *     `codex exec resume` failed.
+ *
+ * We include the canonical Trainer rules + canonical knowledge map +
+ * a budgeted slice of recent transcript + the user's current input,
+ * then ask Codex to process only the latest input.
+ */
+export function buildRehydrationPrompt(opts: {
+  subject: string;
+  goal: string;
+  knowledgeMapMarkdown: string | null;
+  currentPhase: number;
+  totalPhases: number;
+  correctCount: number;
+  totalCount: number;
+  // Whole transcript including the just-saved user message. We slice it
+  // ourselves to keep the prompt size bounded.
+  messages: Array<{ role: "user" | "assistant"; content: string; hidden?: 0 | 1 | boolean }>;
+}): string {
+  const RECENT_N = 12;
+  const visible = opts.messages.filter((m) => !m.hidden);
+  const recent = visible.slice(-RECENT_N);
+  const olderCount = Math.max(0, visible.length - recent.length);
+
+  const lines: string[] = [];
+  lines.push(
+    "あなたは私専用の対話式トレーナーで、以下の題材のプロフェッショナルです。",
+    "別環境からの引き継ぎとして、これまでの学習履歴を共有します。",
+    "",
+    "# 題材",
+    opts.subject,
+    "",
+    "# 目的",
+    opts.goal,
+    "",
+  );
+
+  if (opts.knowledgeMapMarkdown) {
+    lines.push("# 知識マップ（確定版）", opts.knowledgeMapMarkdown, "");
+  }
+
+  lines.push(
+    "# 進捗",
+    `- 現在 Phase: ${opts.currentPhase} / ${opts.totalPhases || "?"}`,
+    `- 正答: ${opts.correctCount} / ${opts.totalCount}`,
+    "",
+  );
+
+  if (olderCount > 0) {
+    lines.push(
+      "# これまでの履歴",
+      `（古い ${olderCount} 件のやり取りは省略しています。文脈に必要なら自分で要約してください。）`,
+      "",
+    );
+  }
+
+  if (recent.length > 0) {
+    lines.push("# 直近のやり取り");
+    for (const m of recent) {
+      lines.push("");
+      lines.push(`## ${m.role === "user" ? "私の入力" : "あなたの応答"}`);
+      lines.push(m.content);
+    }
+    lines.push("");
+  }
+
+  lines.push(
+    "# 出題ルール（再掲）",
+    "- 1問ずつ出題し、私の回答を待ってください。",
+    "- 私が回答したら、最初の1行に必ず「正解です。」または「不正解です。」と独立した行で明示してください。",
+    "- 正誤判定の後、各選択肢の解説と重要ポイントを示してください。",
+    "- 解説の最後に必ず次の問題を続けて出題してください（解説だけで終わらない）。",
+    "- Phase が切り替わる前に必ず「Phase X まとめ問題」を1問挟んでください。",
+    "- 出題前にセルフレビューし、正解が露骨にバレる作りなら作り直してから出題してください。",
+    "",
+    "# 回答フォーマット",
+    "回答:",
+    "理由:",
+    "迷った選択肢:",
+    "自信度:",
+    "",
+    "# 出題フォーマット",
+    "## Phase X: {フェーズ名}",
+    "### Q{番号}. {問題タイトル}",
+    "",
+    "{短いシナリオ}",
+    "",
+    "A. ...",
+    "B. ...",
+    "C. ...",
+    "D. ...",
+    "",
+    "# 指示",
+    "上の「直近のやり取り」の一番最後の「私の入力」に対して、通常通り判定と次の出題で応答してください。",
+    "履歴の再出力や全体の要約は不要です。最新入力だけを処理してください。",
+  );
+
+  return lines.join("\n");
+}
+
 export function buildInitialPrompt(subject: string, goal: string): string {
   return `あなたは私専用の対話式トレーナーであり、以下の題材のプロフェッショナルです。
 
