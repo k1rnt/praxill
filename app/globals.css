@@ -435,6 +435,83 @@ kbd {
   gap: 10px;
 }
 
+/* Phase-grouped sections */
+.phase-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.phase-section__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 100%;
+  text-align: left;
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 0.9rem;
+  touch-action: manipulation;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.phase-section__header:active {
+  background: var(--bg-elev-2);
+}
+
+.phase-section--open .phase-section__header {
+  background: var(--bg-elev-2);
+  border-color: var(--border-strong);
+}
+
+.phase-section__title {
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  flex: 1;
+  min-width: 0;
+}
+
+.phase-section__stats {
+  flex: 0 0 auto;
+  font-size: 0.76rem;
+  color: var(--fg-muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  background: var(--bg);
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.phase-section__chev {
+  flex: 0 0 auto;
+  color: var(--fg-muted);
+  font-size: 1.05rem;
+  line-height: 1;
+  transition: transform 0.18s ease;
+}
+
+.phase-section--open .phase-section__chev {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+.phase-section__rounds {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 8px;
+  /* Subtle rail to indicate nested rounds belong to the Phase above */
+  border-left: 2px solid var(--border);
+  margin-left: 6px;
+  animation: slideDown 0.16s ease;
+}
+
 .chat__hint {
   border: 1px dashed var(--border-strong);
   border-radius: 12px;

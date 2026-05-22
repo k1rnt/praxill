@@ -40,6 +40,51 @@ function buildRounds(visible: Message[]): Round[] {
   return rounds;
 }
 
+type PhaseGroup = {
+  phase: number;
+  rounds: Round[];
+  total: number; // problems with a detectable verdict
+  correct: number;
+};
+
+/**
+ * Find the Phase number a round belongs to by scanning the previous
+ * assistant message for the most recent "## Phase N:" header. The Trainer's
+ * reply opens with the Phase section header before the Q, so this is the
+ * authoritative source.
+ */
+function detectPhase(round: Round): number | null {
+  const text = round.prevAssistant?.content ?? "";
+  const matches = [...text.matchAll(/##\s*Phase\s*(\d+)/gi)];
+  if (matches.length === 0) return null;
+  return parseInt(matches[matches.length - 1][1], 10);
+}
+
+function groupRoundsByPhase(rounds: Round[]): PhaseGroup[] {
+  const groups: PhaseGroup[] = [];
+  // Carry forward the last seen Phase so rounds whose prevAssistant happens
+  // not to include a "## Phase N:" header still cluster with their neighbours
+  let currentPhase = 1;
+  for (const r of rounds) {
+    const detected = detectPhase(r);
+    if (detected !== null) currentPhase = detected;
+    let group = groups[groups.length - 1];
+    if (!group || group.phase !== currentPhase) {
+      group = { phase: currentPhase, rounds: [], total: 0, correct: 0 };
+      groups.push(group);
+    }
+    group.rounds.push(r);
+    const result = r.assistant
+      ? detectQuizResult(r.assistant.content)
+      : null;
+    if (result !== null) {
+      group.total += 1;
+      if (result === "correct") group.correct += 1;
+    }
+  }
+  return groups;
+}
+
 function summarizeRound(round: Round): {
   qLabel: string;
   qLabelKind: "regular" | "summary" | "freeform";
@@ -143,6 +188,7 @@ export default function ChatView({
   );
 
   const rounds = useMemo(() => buildRounds(visibleMessages), [visibleMessages]);
+  const phaseGroups = useMemo(() => groupRoundsByPhase(rounds), [rounds]);
 
   const [openRounds, setOpenRounds] = useState<Set<number>>(() => {
     // Initially expand only the most recent round
@@ -155,7 +201,23 @@ export default function ChatView({
     return last ? new Set([last.user.id]) : new Set();
   });
 
+  const [openPhaseSections, setOpenPhaseSections] = useState<Set<number>>(
+    () => {
+      // Initially expand only the latest Phase so the user sees current work
+      // while past Phases stay tucked away as section headers.
+      const initialRounds = buildRounds(
+        initialMessages.filter(
+          (_, idx) => !(idx === 0 && initialMessages[0]?.role === "user"),
+        ),
+      );
+      const groups = groupRoundsByPhase(initialRounds);
+      const last = groups[groups.length - 1];
+      return last ? new Set([last.phase]) : new Set();
+    },
+  );
+
   const lastRoundId = rounds[rounds.length - 1]?.user.id ?? null;
+  const latestPhase = phaseGroups[phaseGroups.length - 1]?.phase ?? null;
 
   // If the page was opened from a search result, focus the round that
   // contains the matched message. focus can match either side of the round
@@ -172,6 +234,14 @@ export default function ChatView({
     return match?.user.id ?? null;
   }, [focusParam, rounds]);
 
+  const focusedPhase = useMemo(() => {
+    if (focusedRoundUserId === null) return null;
+    const group = phaseGroups.find((g) =>
+      g.rounds.some((r) => r.user.id === focusedRoundUserId),
+    );
+    return group?.phase ?? null;
+  }, [focusedRoundUserId, phaseGroups]);
+
   // When a new round arrives (user just submitted), collapse every other
   // round so the latest one is the only thing in view. Old rounds the user
   // had open get tucked back away to reduce noise while waiting for / reading
@@ -184,6 +254,26 @@ export default function ChatView({
     setOpenRounds(next);
   }, [lastRoundId, focusedRoundUserId]);
 
+  // Keep the latest Phase open as it advances. Previously opened Phases stay
+  // open — Phase-level toggle is per-section so the user can keep multiple
+  // Phases expanded if they're flipping between them.
+  useEffect(() => {
+    if (latestPhase === null) return;
+    setOpenPhaseSections((prev) => {
+      if (prev.has(latestPhase)) return prev;
+      return new Set([...prev, latestPhase]);
+    });
+  }, [latestPhase]);
+
+  // If we landed on a focused round (from search), open its Phase too.
+  useEffect(() => {
+    if (focusedPhase === null) return;
+    setOpenPhaseSections((prev) => {
+      if (prev.has(focusedPhase)) return prev;
+      return new Set([...prev, focusedPhase]);
+    });
+  }, [focusedPhase]);
+
   // Scroll the focused round into view once it's rendered.
   useEffect(() => {
     if (focusedRoundUserId === null) return;
@@ -191,9 +281,18 @@ export default function ChatView({
       document
         .getElementById(`round-${focusedRoundUserId}`)
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 150);
+    }, 200);
     return () => clearTimeout(t);
   }, [focusedRoundUserId]);
+
+  const togglePhaseSection = (phase: number) => {
+    setOpenPhaseSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(phase)) next.delete(phase);
+      else next.add(phase);
+      return next;
+    });
+  };
 
   const toggleRound = (id: number) => {
     setOpenRounds((prev) => {
@@ -431,15 +530,47 @@ export default function ChatView({
             Q1 から解いていきましょう。
           </div>
         ) : (
-          rounds.map((round, idx) => (
-            <RoundCard
-              key={round.user.id}
-              round={round}
-              isLatest={idx === rounds.length - 1}
-              isOpen={openRounds.has(round.user.id)}
-              onToggle={() => toggleRound(round.user.id)}
-            />
-          ))
+          phaseGroups.map((group) => {
+            const isOpen = openPhaseSections.has(group.phase);
+            return (
+              <div
+                key={group.phase}
+                className={`phase-section ${isOpen ? "phase-section--open" : ""}`}
+              >
+                <button
+                  type="button"
+                  className="phase-section__header"
+                  onClick={() => togglePhaseSection(group.phase)}
+                  aria-expanded={isOpen}
+                >
+                  <span className="phase-section__title">
+                    Phase {group.phase}
+                  </span>
+                  <span className="phase-section__stats">
+                    {group.total > 0
+                      ? `${group.total}問 · ${group.correct}正解`
+                      : `${group.rounds.length}件`}
+                  </span>
+                  <span className="phase-section__chev" aria-hidden>
+                    ▾
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="phase-section__rounds">
+                    {group.rounds.map((round) => (
+                      <RoundCard
+                        key={round.user.id}
+                        round={round}
+                        isLatest={round.user.id === lastRoundId}
+                        isOpen={openRounds.has(round.user.id)}
+                        onToggle={() => toggleRound(round.user.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 
