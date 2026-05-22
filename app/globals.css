@@ -264,6 +264,18 @@ kbd {
   border-radius: 8px;
 }
 
+/* Icon-only buttons (header nav etc.) — square, centred */
+.btn--icon {
+  min-height: 36px;
+  min-width: 36px;
+  padding: 6px;
+  border-radius: 8px;
+}
+
+.btn--icon svg {
+  display: block;
+}
+
 .page-title {
   font-size: 1.5rem;
   font-weight: 700;
@@ -435,11 +447,27 @@ kbd {
 .chat-meta__goal {
   color: var(--fg-muted);
   font-size: 0.82rem;
-  margin-top: 6px;
+  margin-top: 8px;
+  line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.chat-meta__goal-label,
+.preview__goal-label {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  background: var(--bg-elev-2);
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-right: 8px;
+  vertical-align: 1px;
 }
 
 .chat {
@@ -483,7 +511,9 @@ kbd {
 }
 
 .kebab__item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   width: 100%;
   padding: 10px 12px;
   border: none;
@@ -493,6 +523,10 @@ kbd {
   font-size: 0.92rem;
   border-radius: 8px;
   cursor: pointer;
+}
+
+.kebab__item svg {
+  flex: 0 0 auto;
 }
 
 .kebab__item:hover {
@@ -975,8 +1009,16 @@ kbd {
   color: var(--danger);
 }
 
-.big-result__icon {
-  font-size: 1.4rem;
+.big-result__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  font-size: 1rem;
+  font-weight: 800;
 }
 
 .round__pending {
@@ -1321,8 +1363,12 @@ kbd {
 }
 
 .start-quiz__icon {
-  font-size: 1.6rem;
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
 }
 
 .start-quiz__body {
@@ -1354,8 +1400,9 @@ kbd {
 }
 
 .start-quiz__chev {
-  font-size: 1.4rem;
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
   opacity: 0.85;
 }
 
@@ -1398,6 +1445,13 @@ kbd {
   font-size: 0.98rem;
   font-weight: 600;
   color: var(--fg);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.map-overlay__title svg {
+  color: var(--accent);
 }
 
 .map-overlay__body {

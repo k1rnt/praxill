@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
+import { Search, Settings as SettingsIcon } from "lucide-react";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -78,18 +79,18 @@ export default function RootLayout({
               </div>
               <div className="app-header__spacer" />
               <Link
-                className="btn btn--ghost btn--sm"
+                className="btn btn--ghost btn--icon"
                 href="/search"
                 aria-label="検索"
               >
-                🔍
+                <Search size={18} strokeWidth={2} />
               </Link>
               <Link
-                className="btn btn--ghost btn--sm"
+                className="btn btn--ghost btn--icon"
                 href="/settings"
                 aria-label="設定"
               >
-                ⚙
+                <SettingsIcon size={18} strokeWidth={2} />
               </Link>
               <Link className="btn btn--primary btn--sm" href="/topics/new">
                 + 新規

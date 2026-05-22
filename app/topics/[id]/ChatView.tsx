@@ -18,6 +18,14 @@ import {
   type KnowledgeMap,
 } from "@/lib/parseKnowledgeMap";
 import KnowledgeMapEditor from "@/components/KnowledgeMapEditor";
+import {
+  ChevronRight,
+  Map as MapIcon,
+  MoreVertical,
+  Notebook,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 
 type Round = {
   user: Message;
@@ -110,10 +118,10 @@ function summarizeRound(round: Round): {
     const isSummary = prevQuiz.kind === "summary";
     return {
       qLabel: isSummary
-        ? "📚 まとめ"
+        ? "まとめ"
         : prevQuiz.number
           ? `Q${prevQuiz.number}`
-          : "❓",
+          : "Q?",
       qLabelKind: isSummary ? "summary" : "regular",
       title: prevQuiz.title || "（タイトルなし）",
       sub: `あなたの回答: ${userAnswer}`,
@@ -123,10 +131,10 @@ function summarizeRound(round: Round): {
 
   const oneLine = round.user.content.replace(/\s+/g, " ").trim();
   return {
-    qLabel: "💬",
+    qLabel: "メモ",
     qLabelKind: "freeform",
     title: oneLine.length > 60 ? oneLine.slice(0, 60) + "…" : oneLine,
-    sub: "フリーテキスト",
+    sub: "ノート",
     result,
   };
 }
@@ -500,7 +508,7 @@ export default function ChatView({
             aria-label="まとめ問題を出題"
             title="現在のPhaseのまとめ問題をリクエスト"
           >
-            📚 まとめ
+            まとめ
           </button>
           {knowledgeMapRaw && (
             <button
@@ -509,19 +517,19 @@ export default function ChatView({
               onClick={() => setMapMode(true)}
               aria-label="知識マップを開く"
             >
-              🗺 マップ
+              マップ
             </button>
           )}
           <div className="kebab">
             <button
               type="button"
-              className="btn btn--ghost btn--sm kebab__toggle"
+              className="btn btn--ghost btn--icon kebab__toggle"
               onClick={() => setMenuOpen((v) => !v)}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               aria-label="その他の操作"
             >
-              ⋮
+              <MoreVertical size={18} strokeWidth={2} />
             </button>
             {menuOpen && (
               <>
@@ -539,14 +547,18 @@ export default function ChatView({
                       setDeleteConfirmOpen(true);
                     }}
                   >
-                    🗑 この題材を削除…
+                    <Trash2 size={16} strokeWidth={2} />
+                    <span>この題材を削除…</span>
                   </button>
                 </div>
               </>
             )}
           </div>
         </div>
-        <div className="chat-meta__goal">🎯 {topicState.goal}</div>
+        <div className="chat-meta__goal">
+          <span className="chat-meta__goal-label">目的</span>
+          {topicState.goal}
+        </div>
         <div className="progress" style={{ marginTop: 10 }}>
           <span className="progress__label">{phaseLabel}</span>
           <div className="progress__bar">
@@ -559,7 +571,7 @@ export default function ChatView({
       <div className="chat">
         {rounds.length === 0 ? (
           <div className="chat__hint">
-            🗺 マップで全体像を確認したら、下の「学習を始める」を押して
+            「マップ」で全体像を確認したら、下の「学習を始める」を押して
             Q1 から解いていきましょう。
           </div>
         ) : (
@@ -618,8 +630,12 @@ export default function ChatView({
               onClick={() => setQuizMode(true)}
               disabled={sending}
             >
-              <span className="start-quiz__icon">
-                {quiz.kind === "summary" ? "📚" : "📝"}
+              <span className="start-quiz__icon" aria-hidden>
+                {quiz.kind === "summary" ? (
+                  <Sparkles size={22} strokeWidth={2} />
+                ) : (
+                  <Notebook size={22} strokeWidth={2} />
+                )}
               </span>
               <span className="start-quiz__body">
                 <span className="start-quiz__title">
@@ -636,7 +652,7 @@ export default function ChatView({
                 </span>
               </span>
               <span className="start-quiz__chev" aria-hidden>
-                ›
+                <ChevronRight size={22} strokeWidth={2.4} />
               </span>
             </button>
           ) : (
@@ -706,7 +722,7 @@ export default function ChatView({
               </span>
             </p>
             <p className="modal__hint">
-              💡 残しておきたい場合は{" "}
+              残しておきたい場合は{" "}
               <Link href="/settings">設定画面</Link>{" "}
               からエクスポートしておけば、あとで復元できます。
             </p>
@@ -730,7 +746,10 @@ export default function ChatView({
                     <span className="spinner" /> 削除中
                   </>
                 ) : (
-                  "🗑 削除する"
+                  <>
+                    <Trash2 size={16} strokeWidth={2} />
+                    <span>削除する</span>
+                  </>
                 )}
               </button>
             </div>
@@ -852,10 +871,10 @@ function RoundCard({
 
           {result && (
             <div className={`big-result big-result--${result}`}>
-              <span className="big-result__icon">
-                {result === "correct" ? "🎉" : "❌"}
+              <span className="big-result__mark">
+                {result === "correct" ? "✓" : "✗"}
               </span>
-              <span>{result === "correct" ? "正解！" : "不正解"}</span>
+              <span>{result === "correct" ? "正解" : "不正解"}</span>
             </div>
           )}
 
@@ -960,14 +979,17 @@ function MapOverlay({
         >
           {editing ? "× キャンセル" : "← 戻る"}
         </button>
-        <span className="map-overlay__title">🗺 知識マップ</span>
+        <span className="map-overlay__title">
+          <MapIcon size={16} strokeWidth={2} aria-hidden />
+          知識マップ
+        </span>
         {map && !editing && (
           <button
             type="button"
             className="btn btn--ghost btn--sm"
             onClick={enterEdit}
           >
-            ✏ 編集
+            編集
           </button>
         )}
       </div>
@@ -1099,7 +1121,7 @@ function QuizOverlay({
         </button>
         <span className="quiz-overlay__qno">
           {quiz.kind === "summary"
-            ? "📚 まとめ"
+            ? "まとめ"
             : quiz.number
               ? `Q${quiz.number}`
               : "問題"}

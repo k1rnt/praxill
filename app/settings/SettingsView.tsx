@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Download, Upload } from "lucide-react";
 
 type Theme = "dark" | "light";
 
@@ -166,7 +167,7 @@ export default function SettingsView() {
         <h2 className="settings__heading">出題</h2>
         <div className="settings__row">
           <div>
-            <div className="settings__row-title">🚀 高速モード</div>
+            <div className="settings__row-title">高速モード</div>
             <div className="settings__row-sub">
               ON にすると 1問あたり 15〜25 秒で返答が来ます。
               OFF（デフォルト）は選択肢の質を優先し 20〜50 秒かけて吟味します。
@@ -201,7 +202,10 @@ export default function SettingsView() {
                 <span className="spinner" /> 書き出し中
               </>
             ) : (
-              "⬇ ダウンロード"
+              <>
+                <Download size={16} strokeWidth={2} />
+                <span>ダウンロード</span>
+              </>
             )}
           </button>
         </div>
@@ -214,7 +218,8 @@ export default function SettingsView() {
             </div>
           </div>
           <label className="btn">
-            ⬆ ファイル選択
+            <Upload size={16} strokeWidth={2} />
+            <span>ファイル選択</span>
             <input
               ref={fileInputRef}
               type="file"

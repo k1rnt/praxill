@@ -52,7 +52,10 @@ export default function PreviewView({
     <div className="preview">
       <div className="preview__meta">
         <div className="preview__title">{topic.title}</div>
-        <div className="preview__goal">🎯 {topic.goal}</div>
+        <div className="preview__goal">
+          <span className="preview__goal-label">目的</span>
+          {topic.goal}
+        </div>
       </div>
 
       <div className="preview__toolbar">
@@ -62,7 +65,7 @@ export default function PreviewView({
           onClick={() => setEditing(!editing)}
           disabled={submitting || !map}
         >
-          {editing ? "編集を終わる" : "✏ 編集する"}
+          {editing ? "編集を終わる" : "編集する"}
         </button>
         <span className="preview__count">
           {map ? `${map.phases.length} Phase` : ""}
