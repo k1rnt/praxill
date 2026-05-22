@@ -28,7 +28,10 @@ export async function POST(
   if (!mapMarkdown) return badRequest("mapMarkdown is required");
 
   // Atomic claim — guards against concurrent answer/finalize/update-map
-  // writes to the same codex thread.
+  // writes to the same codex thread. Persisting the hidden user prompt
+  // happens inside the same transaction so a failed INSERT rolls back the
+  // lock too.
+  const prompt = buildMapUpdatePrompt(mapMarkdown);
   const lockId = randomUUID();
   const db = getDb();
   const claim = db.transaction(():
@@ -40,6 +43,7 @@ export async function POST(
     if (!topic) return { kind: "notfound" };
     if (topic.codex_lock !== null) return { kind: "busy" };
     if (!topic.thread_id) return { kind: "no_thread" };
+    addMessage(id, "user", prompt, true);
     updateTopic(id, { codex_lock: lockId });
     return { kind: "ok", threadId: topic.thread_id };
   })();
@@ -59,9 +63,6 @@ export async function POST(
       { status: 400 },
     );
   }
-
-  const prompt = buildMapUpdatePrompt(mapMarkdown);
-  addMessage(id, "user", prompt, true);
 
   try {
     const result = await codexResume(claim.threadId, prompt, undefined, lockId);

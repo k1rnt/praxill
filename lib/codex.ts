@@ -75,8 +75,38 @@ function runCodex(
       if (lockId) inflightCalls.delete(lockId);
     };
 
-    let stdout = "";
+    // Parse stdout line-by-line so we don't keep a growing in-memory
+    // buffer of the whole response. Only the parsed events / extracted
+    // texts are retained.
+    const events: string[] = [];
+    let threadId: string | null = null;
+    const messages: string[] = [];
+    let stdoutBuf = "";
+    const processStdoutLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("{")) return;
+      events.push(trimmed);
+      try {
+        const evt = JSON.parse(trimmed);
+        if (evt.type === "thread.started" && typeof evt.thread_id === "string") {
+          threadId = evt.thread_id;
+        } else if (
+          evt.type === "item.completed" &&
+          evt.item?.type === "agent_message" &&
+          typeof evt.item?.text === "string"
+        ) {
+          messages.push(evt.item.text);
+        }
+      } catch {
+        // Malformed JSON line — already in events for debugging.
+      }
+    };
+
+    // stderr is treated as opaque debug info; keep only the trailing N KB
+    // so a misbehaving codex can't leak memory.
+    const STDERR_TAIL_MAX = 16 * 1024;
     let stderr = "";
+
     const timer = setTimeout(() => {
       try {
         if (child.pid) process.kill(-child.pid, "SIGKILL");
@@ -88,10 +118,20 @@ function runCodex(
     }, TIMEOUT_MS);
 
     child.stdout.on("data", (b: Buffer) => {
-      stdout += b.toString("utf8");
+      stdoutBuf += b.toString("utf8");
+      let nl = stdoutBuf.indexOf("\n");
+      while (nl >= 0) {
+        const line = stdoutBuf.slice(0, nl);
+        stdoutBuf = stdoutBuf.slice(nl + 1);
+        if (line) processStdoutLine(line);
+        nl = stdoutBuf.indexOf("\n");
+      }
     });
     child.stderr.on("data", (b: Buffer) => {
       stderr += b.toString("utf8");
+      if (stderr.length > STDERR_TAIL_MAX) {
+        stderr = "…(truncated)\n" + stderr.slice(-STDERR_TAIL_MAX);
+      }
     });
     child.on("error", (err) => {
       clearTimeout(timer);
@@ -102,11 +142,16 @@ function runCodex(
     child.on("close", (code, signal) => {
       clearTimeout(timer);
       cleanup();
+      // Flush any partial trailing line that didn't get a newline.
+      if (stdoutBuf.length > 0) {
+        processStdoutLine(stdoutBuf);
+        stdoutBuf = "";
+      }
       if (code !== 0) {
         // Detail goes to journalctl; the user-facing message stays short and
         // free of stdout/stderr leakage.
         console.error(
-          `[codex] non-zero exit code=${code} signal=${signal}\nstderr=${stderr}\nstdout=${stdout}`,
+          `[codex] non-zero exit code=${code} signal=${signal}\nstderr=${stderr}\nevents=${events.length}`,
         );
         reject(
           new Error(
@@ -117,35 +162,10 @@ function runCodex(
         );
         return;
       }
-      const events: string[] = [];
-      let threadId: string | null = null;
-      const messages: string[] = [];
-      for (const line of stdout.split(/\r?\n/)) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("{")) continue;
-        events.push(trimmed);
-        try {
-          const evt = JSON.parse(trimmed);
-          if (
-            evt.type === "thread.started" &&
-            typeof evt.thread_id === "string"
-          ) {
-            threadId = evt.thread_id;
-          } else if (
-            evt.type === "item.completed" &&
-            evt.item?.type === "agent_message" &&
-            typeof evt.item?.text === "string"
-          ) {
-            messages.push(evt.item.text);
-          }
-        } catch {
-          // Ignore malformed JSON lines
-        }
-      }
       const text = messages.join("\n\n");
       if (!text.trim()) {
         console.error(
-          `[codex] empty response, events=${events.length} stdout=${stdout.slice(0, 500)}`,
+          `[codex] empty response, events=${events.length} stderr=${stderr.slice(-500)}`,
         );
         reject(new Error("Codex から応答テキストが取得できませんでした"));
         return;

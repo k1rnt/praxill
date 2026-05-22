@@ -28,9 +28,11 @@ export async function POST(
     typeof body.mapMarkdown === "string" ? body.mapMarkdown.trim() : "";
   if (!mapMarkdown) return badRequest("mapMarkdown is required");
 
-  // Atomic claim of the codex lock + status validation in one shot — no
-  // two simultaneous finalize POSTs can both pass through and double-issue
-  // Q1.
+  // Atomic claim of the codex lock + status validation + persisting the
+  // hidden user prompt in one shot. Doing the user-message INSERT inside
+  // the same transaction means a disk-full failure rolls back the lock as
+  // well, instead of leaving the topic permanently "busy".
+  const prompt = buildFinalizePrompt(mapMarkdown);
   const lockId = randomUUID();
   const db = getDb();
   const claim = db.transaction(():
@@ -44,6 +46,7 @@ export async function POST(
     if (topic.status === "active") return { kind: "already_active", topic };
     if (topic.codex_lock !== null) return { kind: "busy" };
     if (!topic.thread_id) return { kind: "no_thread" };
+    addMessage(id, "user", prompt, true);
     updateTopic(id, { codex_lock: lockId });
     return { kind: "ok", threadId: topic.thread_id };
   })();
@@ -66,9 +69,6 @@ export async function POST(
       { status: 400 },
     );
   }
-
-  const prompt = buildFinalizePrompt(mapMarkdown);
-  addMessage(id, "user", prompt, true);
 
   try {
     const result = await codexResume(claim.threadId, prompt, undefined, lockId);

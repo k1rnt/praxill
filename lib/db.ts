@@ -81,17 +81,45 @@ function init(db: Database.Database) {
   // user message that's waiting for a Trainer reply. Cleared on boot because
   // any background codex process is gone after a server restart.
   ensureColumn(db, "topics", "pending_user_message_id", "INTEGER");
-  db.exec(
-    "UPDATE topics SET pending_user_message_id = NULL WHERE pending_user_message_id IS NOT NULL",
-  );
-
   // Per-topic mutual-exclusion lock for codex calls. NULL = idle; otherwise
-  // a UUID identifying the call that currently owns the topic. Cleared on
-  // boot because any background codex process is gone.
+  // a UUID identifying the call that currently owns the topic.
   ensureColumn(db, "topics", "codex_lock", "TEXT");
-  db.exec(
-    "UPDATE topics SET codex_lock = NULL WHERE codex_lock IS NOT NULL",
-  );
+
+  // Restart recovery: any topic that still has a pending/lock at boot is a
+  // call interrupted by a server restart — the codex child is dead and no
+  // assistant reply is coming. Post an explicit "interrupted" assistant
+  // message (so the user sees what happened in chat) before clearing the
+  // pending/lock state. Skip topics whose last message is already an
+  // assistant — that means the response actually landed before the crash.
+  const orphans = db
+    .prepare(
+      `SELECT id FROM topics
+       WHERE pending_user_message_id IS NOT NULL OR codex_lock IS NOT NULL`,
+    )
+    .all() as { id: string }[];
+  if (orphans.length > 0) {
+    const lastRoleStmt = db.prepare(
+      "SELECT role FROM messages WHERE topic_id = ? ORDER BY id DESC LIMIT 1",
+    );
+    const insertErr = db.prepare(
+      `INSERT INTO messages (topic_id, role, content, hidden, created_at)
+       VALUES (?, 'assistant', ?, 0, ?)`,
+    );
+    const now = new Date().toISOString();
+    const message =
+      "__codex error__\n\nサーバー再起動により処理が中断されました。もう一度送信してください。";
+    for (const o of orphans) {
+      const last = lastRoleStmt.get(o.id) as { role?: string } | undefined;
+      if (last?.role === "user") {
+        insertErr.run(o.id, message, now);
+      }
+    }
+    db.exec(
+      `UPDATE topics
+         SET pending_user_message_id = NULL, codex_lock = NULL
+       WHERE pending_user_message_id IS NOT NULL OR codex_lock IS NOT NULL`,
+    );
+  }
 
   // Stores the canonical knowledge map markdown so it survives map edits
   // (which update Trainer's understanding via a hidden thread message but
@@ -385,8 +413,10 @@ export function searchMessages(query: string, limit = 50): SearchResult[] {
   }
 
   // LIKE fallback — wrap the matched span with the same markers so the
-  // client can highlight it uniformly.
-  const pattern = "%" + q + "%";
+  // client can highlight it uniformly. Escape LIKE metacharacters in the
+  // user input so `q=%` doesn't match every message in the DB.
+  const escaped = q.replace(/[\\%_]/g, (c) => "\\" + c);
+  const pattern = "%" + escaped + "%";
   const rows = db
     .prepare(
       `
@@ -399,7 +429,7 @@ export function searchMessages(query: string, limit = 50): SearchResult[] {
         m.content     AS content
       FROM messages m
       JOIN topics t ON t.id = m.topic_id
-      WHERE m.hidden = 0 AND m.content LIKE ?
+      WHERE m.hidden = 0 AND m.content LIKE ? ESCAPE '\\'
       ORDER BY m.id DESC
       LIMIT ?
     `,

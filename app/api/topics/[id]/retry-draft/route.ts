@@ -34,13 +34,17 @@ export async function POST(
     | { kind: "notfound" }
     | { kind: "already_active" }
     | { kind: "busy" }
-    | { kind: "ok"; subject: string; goal: string } => {
+    | { kind: "ok"; prompt: string } => {
     const topic = getTopic(id);
     if (!topic) return { kind: "notfound" };
     if (topic.status === "active") return { kind: "already_active" };
     if (topic.codex_lock !== null) return { kind: "busy" };
-    // Fresh thread for the retry; throw away anything the previous failed
-    // attempt may have left behind.
+    // Throw away anything the previous failed attempt left behind — old
+    // hidden prompts, __codex error__ messages, partial maps. Then start
+    // a fresh draft from scratch.
+    db.prepare("DELETE FROM messages WHERE topic_id = ?").run(id);
+    const prompt = buildDraftPrompt(topic.subject, topic.goal);
+    addMessage(id, "user", prompt, true);
     updateTopic(id, {
       codex_lock: lockId,
       thread_id: null,
@@ -48,7 +52,7 @@ export async function POST(
       total_phases: 0,
       current_phase: 1,
     });
-    return { kind: "ok", subject: topic.subject, goal: topic.goal };
+    return { kind: "ok", prompt };
   })();
 
   if (claim.kind === "notfound") {
@@ -67,11 +71,8 @@ export async function POST(
     );
   }
 
-  const prompt = buildDraftPrompt(claim.subject, claim.goal);
-  addMessage(id, "user", prompt, true);
-
   try {
-    const result = await codexStart(prompt, undefined, lockId);
+    const result = await codexStart(claim.prompt, undefined, lockId);
 
     const wrote = withCodexLock(id, lockId, () => {
       addMessage(id, "assistant", result.text);
