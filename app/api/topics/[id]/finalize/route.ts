@@ -12,6 +12,7 @@ import { codexResume } from "@/lib/codex";
 import { buildFinalizePrompt } from "@/lib/prompt";
 import { parseAssistantProgress } from "@/lib/progress";
 import { parseKnowledgeMap } from "@/lib/parseKnowledgeMap";
+import { badRequest, readJsonObject, sanitizeCodexError } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -21,14 +22,11 @@ export async function POST(
   ctx: RouteContext<"/api/topics/[id]/finalize">,
 ) {
   const { id } = await ctx.params;
-  const body = (await req.json()) as { mapMarkdown?: string };
-  const mapMarkdown = body.mapMarkdown?.trim();
-  if (!mapMarkdown) {
-    return NextResponse.json(
-      { error: "mapMarkdown is required" },
-      { status: 400 },
-    );
-  }
+  const body = await readJsonObject(req);
+  if (!body) return badRequest("リクエスト形式が不正です");
+  const mapMarkdown =
+    typeof body.mapMarkdown === "string" ? body.mapMarkdown.trim() : "";
+  if (!mapMarkdown) return badRequest("mapMarkdown is required");
 
   // Atomic claim of the codex lock + status validation in one shot — no
   // two simultaneous finalize POSTs can both pass through and double-issue
@@ -73,7 +71,7 @@ export async function POST(
   addMessage(id, "user", prompt, true);
 
   try {
-    const result = await codexResume(claim.threadId, prompt);
+    const result = await codexResume(claim.threadId, prompt, undefined, lockId);
 
     const wrote = withCodexLock(id, lockId, () => {
       addMessage(id, "assistant", result.text);
@@ -96,7 +94,7 @@ export async function POST(
     }
     return NextResponse.json({ topic: getTopic(id) });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = sanitizeCodexError(err);
     withCodexLock(id, lockId, () => {
       addMessage(id, "assistant", `__codex error__\n\n${message}`, true);
     });

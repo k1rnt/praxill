@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { replaceAll, type Message, type Topic } from "@/lib/db";
+import { cancelAllCodexCalls } from "@/lib/codex";
 
 export const dynamic = "force-dynamic";
 
@@ -27,14 +28,16 @@ function validateTopic(x: unknown, idx: number): Topic | string {
     typeof t.thread_id !== "string"
   )
     return `topics[${idx}].thread_id must be string or null`;
-  if (!Number.isInteger(t.current_phase))
-    return `topics[${idx}].current_phase must be an integer`;
-  if (!Number.isInteger(t.total_phases))
-    return `topics[${idx}].total_phases must be an integer`;
-  if (!Number.isInteger(t.correct_count))
-    return `topics[${idx}].correct_count must be an integer`;
-  if (!Number.isInteger(t.total_count))
-    return `topics[${idx}].total_count must be an integer`;
+  if (!Number.isInteger(t.current_phase) || (t.current_phase as number) < 1)
+    return `topics[${idx}].current_phase must be an integer ≥ 1`;
+  if (!Number.isInteger(t.total_phases) || (t.total_phases as number) < 0)
+    return `topics[${idx}].total_phases must be an integer ≥ 0`;
+  if (!Number.isInteger(t.correct_count) || (t.correct_count as number) < 0)
+    return `topics[${idx}].correct_count must be an integer ≥ 0`;
+  if (!Number.isInteger(t.total_count) || (t.total_count as number) < 0)
+    return `topics[${idx}].total_count must be an integer ≥ 0`;
+  if ((t.correct_count as number) > (t.total_count as number))
+    return `topics[${idx}].correct_count must not exceed total_count`;
   if (t.status !== undefined && t.status !== "draft" && t.status !== "active")
     return `topics[${idx}].status must be "draft" | "active" | undefined`;
   if (typeof t.created_at !== "string")
@@ -146,6 +149,10 @@ export async function POST(req: Request) {
     messageIds.add(v.id);
     messages.push(v);
   }
+
+  // Kill any in-flight codex calls so their background completions can't
+  // race with the replaceAll() truncate+insert below.
+  cancelAllCodexCalls();
 
   try {
     replaceAll(topics, messages);

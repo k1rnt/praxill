@@ -577,7 +577,7 @@ export default function ChatView({
       <div className="chat">
         {rounds.length === 0 ? (
           <div className="chat__hint">
-            「マップ」で全体像を確認したら、下の「学習を始める」を押して
+            「マップ」で全体像を確認したら、下の「問題を解く」を押して
             Q1 から解いていきましょう。
           </div>
         ) : (
@@ -646,10 +646,10 @@ export default function ChatView({
               <span className="start-quiz__body">
                 <span className="start-quiz__title">
                   {sending
-                    ? "Trainer が考え中…"
+                    ? "問題を準備中… (20〜50秒)"
                     : quiz.kind === "summary"
-                      ? "まとめ問題に挑戦"
-                      : "学習を始める"}
+                      ? "まとめを解く"
+                      : "問題を解く"}
                 </span>
                 <span className="start-quiz__sub">
                   {quiz.number
@@ -886,7 +886,7 @@ function RoundCard({
 
           {round.assistant ? (
             <div>
-              <div className="round__section-label">Trainer の解説</div>
+              <div className="round__section-label">解説</div>
               <div className="markdown">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {stripLatestQuiz(round.assistant.content)}
@@ -894,13 +894,17 @@ function RoundCard({
               </div>
             </div>
           ) : (
+            // The single source of truth for "we're waiting" is the dock CTA
+            // at the bottom of the screen — it's always visible. Inside the
+            // round body we just show a soft indicator so the user knows
+            // the section is still being filled in.
             <div className="round__pending">
               <span className="thinking-dots">
                 <span />
                 <span />
                 <span />
               </span>
-              <span>Trainer が問題を吟味中… (20〜50秒)</span>
+              <span>採点を待っています</span>
             </div>
           )}
         </div>
@@ -1010,7 +1014,7 @@ function MapOverlay({
                 marginBottom: 14,
               }}
             >
-              編集後「保存」を押すと、Trainer に更新を伝えて以降のクイズに反映します（10〜20秒）。
+              編集後「保存」を押すと、新しいマップに沿って以降のクイズが調整されます（10〜20秒）。
             </p>
             <KnowledgeMapEditor map={draft} onChange={setDraft} />
             {saveError && <div className="error">{saveError}</div>}

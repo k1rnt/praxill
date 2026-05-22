@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 const CODEX_BIN = process.env.CODEX_BIN || "codex";
 const MODEL = process.env.CODEX_MODEL || "gpt-5.5";
@@ -11,17 +11,79 @@ export type CodexResult = {
   rawEvents: string[];
 };
 
-function runCodex(args: string[], prompt: string): Promise<CodexResult> {
+// Active codex child processes, keyed by the caller's lockId so the route
+// layer can cancel them when the underlying topic is deleted / imported
+// over. We spawn detached so we can SIGTERM the whole process group; codex
+// itself may spawn helpers that would otherwise leak.
+const inflightCalls = new Map<string, ChildProcessWithoutNullStreams>();
+
+/**
+ * Kill the codex child associated with `lockId`. SIGTERM first, then SIGKILL
+ * after a short grace period if it hasn't exited. Returns true if a process
+ * was found and signalled.
+ */
+export function cancelCodexCall(lockId: string): boolean {
+  const child = inflightCalls.get(lockId);
+  if (!child || !child.pid) return false;
+  inflightCalls.delete(lockId);
+  const pid = child.pid;
+  try {
+    process.kill(-pid, "SIGTERM");
+  } catch {
+    // Already exited or signal not deliverable.
+  }
+  setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+  }, 3000);
+  return true;
+}
+
+/**
+ * Cancel every in-flight codex call. Used by /api/import before replaceAll
+ * so background completions can't write into a now-stale DB.
+ */
+export function cancelAllCodexCalls(): number {
+  let cancelled = 0;
+  for (const lockId of [...inflightCalls.keys()]) {
+    if (cancelCodexCall(lockId)) cancelled += 1;
+  }
+  return cancelled;
+}
+
+function runCodex(
+  args: string[],
+  prompt: string,
+  lockId?: string,
+): Promise<CodexResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(CODEX_BIN, args, {
       stdio: ["pipe", "pipe", "pipe"],
       env: process.env,
+      detached: true,
     });
+    if (lockId && child.pid) {
+      inflightCalls.set(lockId, child);
+    }
+
+    const cleanup = () => {
+      if (lockId) inflightCalls.delete(lockId);
+    };
 
     let stdout = "";
     let stderr = "";
     const timer = setTimeout(() => {
-      child.kill("SIGKILL");
+      try {
+        if (child.pid) process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // Already exited.
+      }
+      cleanup();
       reject(new Error(`codex timed out after ${TIMEOUT_MS}ms`));
     }, TIMEOUT_MS);
 
@@ -33,14 +95,24 @@ function runCodex(args: string[], prompt: string): Promise<CodexResult> {
     });
     child.on("error", (err) => {
       clearTimeout(timer);
-      reject(err);
+      cleanup();
+      console.error("[codex] spawn error:", err);
+      reject(new Error("codex の起動に失敗しました"));
     });
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       clearTimeout(timer);
+      cleanup();
       if (code !== 0) {
+        // Detail goes to journalctl; the user-facing message stays short and
+        // free of stdout/stderr leakage.
+        console.error(
+          `[codex] non-zero exit code=${code} signal=${signal}\nstderr=${stderr}\nstdout=${stdout}`,
+        );
         reject(
           new Error(
-            `codex exited with code ${code}\nstderr: ${stderr}\nstdout: ${stdout}`,
+            signal
+              ? `codex was terminated (${signal})`
+              : `codex exited with code ${code}`,
           ),
         );
         return;
@@ -54,7 +126,10 @@ function runCodex(args: string[], prompt: string): Promise<CodexResult> {
         events.push(trimmed);
         try {
           const evt = JSON.parse(trimmed);
-          if (evt.type === "thread.started" && typeof evt.thread_id === "string") {
+          if (
+            evt.type === "thread.started" &&
+            typeof evt.thread_id === "string"
+          ) {
             threadId = evt.thread_id;
           } else if (
             evt.type === "item.completed" &&
@@ -69,15 +144,10 @@ function runCodex(args: string[], prompt: string): Promise<CodexResult> {
       }
       const text = messages.join("\n\n");
       if (!text.trim()) {
-        // Codex exited successfully but emitted no agent_message — usually
-        // a refusal, a tool-only response, or a malformed JSONL line. Treat
-        // as a failure so the caller stores an error message and clears
-        // pending state instead of saving a blank assistant reply.
-        reject(
-          new Error(
-            `codex returned no message text (events: ${events.length})`,
-          ),
+        console.error(
+          `[codex] empty response, events=${events.length} stdout=${stdout.slice(0, 500)}`,
         );
+        reject(new Error("Codex から応答テキストが取得できませんでした"));
         return;
       }
       resolve({ threadId, text, rawEvents: events });
@@ -101,20 +171,37 @@ function buildArgs(reasoning?: string): string[] {
   ];
 }
 
-export function codexStart(
+/**
+ * Start a NEW codex thread. Guarantees a thread_id in the result — if codex
+ * doesn't emit one (schema change, malformed JSONL, ...) the promise rejects
+ * so callers don't end up with a draft topic they can't resume.
+ */
+export async function codexStart(
   prompt: string,
   reasoning?: string,
-): Promise<CodexResult> {
-  return runCodex(["exec", ...buildArgs(reasoning)], prompt);
+  lockId?: string,
+): Promise<CodexResult & { threadId: string }> {
+  const result = await runCodex(
+    ["exec", ...buildArgs(reasoning)],
+    prompt,
+    lockId,
+  );
+  if (!result.threadId) {
+    console.error("[codex] start did not produce a thread_id");
+    throw new Error("Codex セッションの初期化に失敗しました");
+  }
+  return result as CodexResult & { threadId: string };
 }
 
 export function codexResume(
   threadId: string,
   prompt: string,
   reasoning?: string,
+  lockId?: string,
 ): Promise<CodexResult> {
   return runCodex(
     ["exec", "resume", threadId, ...buildArgs(reasoning)],
     prompt,
+    lockId,
   );
 }

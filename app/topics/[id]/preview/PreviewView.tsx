@@ -1,37 +1,76 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, Trash2 } from "lucide-react";
 import type { Topic } from "@/lib/db";
 import {
+  parseKnowledgeMap,
   serializeKnowledgeMap,
   type KnowledgeMap,
 } from "@/lib/parseKnowledgeMap";
 import KnowledgeMapEditor from "@/components/KnowledgeMapEditor";
 
 export default function PreviewView({
-  topic,
+  topic: initialTopic,
   initialMap,
-  fallbackRaw,
+  fallbackRaw: initialFallbackRaw,
 }: {
   topic: Topic;
   initialMap: KnowledgeMap | null;
   fallbackRaw: string;
 }) {
   const router = useRouter();
+  const [topic, setTopic] = useState(initialTopic);
   const [editing, setEditing] = useState(false);
   const [map, setMap] = useState<KnowledgeMap | null>(initialMap);
+  const [fallbackRaw, setFallbackRaw] = useState(initialFallbackRaw);
   const [submitting, setSubmitting] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // "Generation failed" state — no parsed map AND no raw text either. The
-  // user can either retry the draft (fires a fresh codex call) or delete
-  // the abandoned draft.
-  const isFailed = !map && !fallbackRaw.trim();
+  // Background codex is running — poll until codex_lock clears.
+  const isGenerating = topic.codex_lock !== null;
+
+  // "Generation failed" state — codex finished, no parsed map AND no raw
+  // text either.
+  const isFailed = !isGenerating && !map && !fallbackRaw.trim();
+
+  // Poll while codex is in flight. Survives the user backgrounding the tab
+  // (we keep the request alive only briefly server-side; the codex child
+  // runs independently).
+  useEffect(() => {
+    if (!isGenerating) return;
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(`/api/topics/${topic.id}`);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          topic: Topic;
+        };
+        if (cancelled) return;
+        setTopic(data.topic);
+        if (data.topic.knowledge_map_markdown) {
+          setFallbackRaw(data.topic.knowledge_map_markdown);
+          const parsed = parseKnowledgeMap(data.topic.knowledge_map_markdown);
+          setMap(parsed);
+        }
+      } catch {
+        // try again next tick
+      }
+    };
+    const fast = setTimeout(poll, 1500);
+    const interval = setInterval(poll, 4000);
+    return () => {
+      cancelled = true;
+      clearTimeout(fast);
+      clearInterval(interval);
+    };
+  }, [topic.id, isGenerating]);
 
   async function finalize() {
     if (submitting) return;
@@ -103,8 +142,20 @@ export default function PreviewView({
         </div>
       </div>
 
-      {/* Failed-draft recovery panel */}
-      {isFailed ? (
+      {isGenerating ? (
+        <div className="preview__generating">
+          <span className="spinner" />
+          <div>
+            <div className="preview__generating-title">
+              知識マップを準備中…
+            </div>
+            <div className="preview__generating-sub">
+              題材から逆算したマップを作っています。20〜50 秒ほどかかります。
+              この画面のまま待っていても、離れて戻ってきても大丈夫です。
+            </div>
+          </div>
+        </div>
+      ) : /* Failed-draft recovery panel */ isFailed ? (
         <>
           <div className="preview__failed">
             <div className="preview__failed-title">

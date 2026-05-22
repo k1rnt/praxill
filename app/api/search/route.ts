@@ -6,10 +6,11 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const q = url.searchParams.get("q") ?? "";
-  const limit = Math.min(
-    Math.max(1, parseInt(url.searchParams.get("limit") ?? "50", 10)),
-    100,
-  );
+  const rawLimit = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
+  // ?limit=abc would otherwise pass NaN to SQLite and 500 the route.
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(1, rawLimit), 100)
+    : 50;
   if (!q.trim()) {
     return NextResponse.json({ results: [] });
   }

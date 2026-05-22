@@ -11,6 +11,7 @@ import {
 import { codexResume } from "@/lib/codex";
 import { buildMapUpdatePrompt } from "@/lib/prompt";
 import { parseKnowledgeMap } from "@/lib/parseKnowledgeMap";
+import { badRequest, readJsonObject, sanitizeCodexError } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -20,14 +21,11 @@ export async function POST(
   ctx: RouteContext<"/api/topics/[id]/update-map">,
 ) {
   const { id } = await ctx.params;
-  const body = (await req.json()) as { mapMarkdown?: string };
-  const mapMarkdown = body.mapMarkdown?.trim();
-  if (!mapMarkdown) {
-    return NextResponse.json(
-      { error: "mapMarkdown is required" },
-      { status: 400 },
-    );
-  }
+  const body = await readJsonObject(req);
+  if (!body) return badRequest("リクエスト形式が不正です");
+  const mapMarkdown =
+    typeof body.mapMarkdown === "string" ? body.mapMarkdown.trim() : "";
+  if (!mapMarkdown) return badRequest("mapMarkdown is required");
 
   // Atomic claim — guards against concurrent answer/finalize/update-map
   // writes to the same codex thread.
@@ -66,13 +64,20 @@ export async function POST(
   addMessage(id, "user", prompt, true);
 
   try {
-    const result = await codexResume(claim.threadId, prompt);
+    const result = await codexResume(claim.threadId, prompt, undefined, lockId);
 
-    const wrote = withCodexLock(id, lockId, () => {
+    const wrote = withCodexLock(id, lockId, (topic) => {
       addMessage(id, "assistant", result.text, true);
       const parsed = parseKnowledgeMap(mapMarkdown);
+      const newTotalPhases = parsed?.phases.length;
+      // Phase シュリンク時の整合性: 現在 Phase が新 total を超えるなら clamp。
+      const clampedCurrent =
+        newTotalPhases !== undefined
+          ? Math.min(topic.current_phase, newTotalPhases)
+          : undefined;
       updateTopic(id, {
-        total_phases: parsed?.phases.length,
+        total_phases: newTotalPhases,
+        current_phase: clampedCurrent,
         knowledge_map_markdown: mapMarkdown,
       });
     });
@@ -85,7 +90,7 @@ export async function POST(
     }
     return NextResponse.json({ topic: getTopic(id), mapMarkdown });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = sanitizeCodexError(err);
     withCodexLock(id, lockId, () => {
       addMessage(id, "assistant", `__codex error__\n\n${message}`, true);
     });

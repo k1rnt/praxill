@@ -84,7 +84,7 @@ export default function NewTopicForm() {
         <button type="submit" className="btn btn--primary" disabled={submitting}>
           {submitting ? (
             <>
-              <span className="spinner" /> 知識マップ生成中…
+              <span className="spinner" /> 作成中…
             </>
           ) : (
             "知識マップを生成"
@@ -92,7 +92,7 @@ export default function NewTopicForm() {
         </button>
       </div>
       <p className="form__hint" style={{ textAlign: "right" }}>
-        マップ生成に 15〜30 秒ほどかかります。次の画面で確認・編集できます。
+        次の画面で完成を待ちます。途中で別の画面に移動しても OK です。
       </p>
     </form>
   );

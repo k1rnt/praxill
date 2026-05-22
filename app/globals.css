@@ -2007,6 +2007,36 @@ kbd {
   font-weight: 700;
 }
 
+.preview__generating {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+
+.preview__generating .spinner {
+  width: 22px;
+  height: 22px;
+  border-width: 3px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.preview__generating-title {
+  font-size: 0.98rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.preview__generating-sub {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  line-height: 1.6;
+}
+
 .preview__failed {
   background: var(--bg-elev);
   border: 1px solid var(--danger);

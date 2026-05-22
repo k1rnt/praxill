@@ -12,6 +12,7 @@ import { codexStart } from "@/lib/codex";
 import { buildDraftPrompt } from "@/lib/prompt";
 import { parseAssistantProgress } from "@/lib/progress";
 import { stripLatestQuiz } from "@/lib/parseQuiz";
+import { sanitizeCodexError } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -70,13 +71,13 @@ export async function POST(
   addMessage(id, "user", prompt, true);
 
   try {
-    const result = await codexStart(prompt);
+    const result = await codexStart(prompt, undefined, lockId);
 
     const wrote = withCodexLock(id, lockId, () => {
       addMessage(id, "assistant", result.text);
       const progress = parseAssistantProgress(result.text, true);
       updateTopic(id, {
-        thread_id: result.threadId ?? undefined,
+        thread_id: result.threadId,
         current_phase: 1,
         total_phases: progress.totalPhases,
         knowledge_map_markdown: stripLatestQuiz(result.text),
@@ -91,7 +92,7 @@ export async function POST(
     }
     return NextResponse.json({ topic: getTopic(id) });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = sanitizeCodexError(err);
     withCodexLock(id, lockId, () => {
       addMessage(id, "assistant", `__codex error__\n\n${message}`);
     });

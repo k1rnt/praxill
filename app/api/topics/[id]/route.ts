@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { deleteTopic, getTopic, listMessages } from "@/lib/db";
+import { cancelCodexCall } from "@/lib/codex";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,13 @@ export async function DELETE(
   ctx: RouteContext<"/api/topics/[id]">,
 ) {
   const { id } = await ctx.params;
+  // Stop any in-flight codex call so it doesn't keep burning tokens after
+  // the row disappears. The completion path uses withCodexLock which
+  // silently no-ops once the topic is gone.
+  const topic = getTopic(id);
+  if (topic?.codex_lock) {
+    cancelCodexCall(topic.codex_lock);
+  }
   deleteTopic(id);
   return NextResponse.json({ ok: true });
 }
