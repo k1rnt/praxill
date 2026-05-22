@@ -79,25 +79,34 @@ export function parseLatestQuiz(text: string): Quiz | null {
 }
 
 /**
- * Detect whether the assistant message starts with a correct/incorrect
- * verdict. Looks at the first ~400 chars for the usual Japanese cues
- * (正解/不正解) and common emoji markers.
+ * Decide whether the Trainer's message expresses a correct or incorrect
+ * verdict. We scan the opening ~600 characters (verdicts always come early)
+ * with a broad Japanese vocabulary so phrasings like "Bが正解です" /
+ * "正しい選択肢は B" / "おしい、間違いです" all get picked up. When both a
+ * correct cue and an incorrect cue appear, the one that comes first wins —
+ * the Trainer's first sentence is the verdict, anything after is exposition.
  */
 export function detectQuizResult(
   text: string,
 ): "correct" | "incorrect" | null {
   if (!text) return null;
-  const head = text.slice(0, 400);
-  const correctHit =
-    /(?:^|\n)\s*(?:✅|⭕|🟢|◯|○)|(?:^|\n|\s)(?:正解|正答)(?:です|！|!|。|\s|$)/.test(
-      head,
-    );
-  const wrongHit =
-    /(?:^|\n)\s*(?:❌|✕|✖|🔴|×)|(?:^|\n|\s)(?:不正解|誤り|残念)(?:です|！|!|。|\s|$)/.test(
-      head,
-    );
-  if (correctHit && !wrongHit) return "correct";
-  if (wrongHit && !correctHit) return "incorrect";
+  const head = text.slice(0, 600);
+
+  // Note: order matters — `不正解` must be checked before `正解` so we don't
+  // accidentally match the substring "正解" inside "不正解".
+  const wrongRe =
+    /(?:❌|✕|✖|🔴|×|不正解|不正答|誤り|誤った|誤って|間違い|間違って|残念|惜し[いく]|外れ)/;
+  const correctRe =
+    /(?:✅|⭕|🟢|◯|○|◎|[大]?正解|正答|的中|正しい|当たり)/;
+
+  const w = head.match(wrongRe);
+  const c = head.match(correctRe);
+
+  if (w && !c) return "incorrect";
+  if (c && !w) return "correct";
+  if (c && w) {
+    return (w.index ?? 0) < (c.index ?? 0) ? "incorrect" : "correct";
+  }
   return null;
 }
 

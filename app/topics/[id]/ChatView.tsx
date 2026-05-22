@@ -464,6 +464,16 @@ function RoundCard({
   // Pending = user submitted but Trainer hasn't replied yet
   const pending = round.assistant === null;
 
+  // For the expanded view we want to show the original question (scenario +
+  // A/B/C/D options) so the user can re-read what they were answering.
+  const prevQuiz = round.prevAssistant
+    ? parseLatestQuiz(round.prevAssistant.content)
+    : null;
+  const userChoiceMatch = round.user.content.match(
+    /(?:^|\n)\s*回答[:：]\s*([A-D])/,
+  );
+  const userChoice = userChoiceMatch?.[1] as Letter | undefined;
+
   return (
     <div
       className={[
@@ -508,6 +518,34 @@ function RoundCard({
 
       {isOpen && (
         <div className="round__body">
+          {prevQuiz && (
+            <div>
+              <div className="round__section-label">出題</div>
+              <div className="round__question">
+                {prevQuiz.scenario && (
+                  <div className="round__scenario">{prevQuiz.scenario}</div>
+                )}
+                <div className="round__options-recap">
+                  {(["A", "B", "C", "D"] as const).map((l) => (
+                    <div
+                      key={l}
+                      className={`round__option-recap ${
+                        userChoice === l
+                          ? "round__option-recap--chosen"
+                          : ""
+                      }`}
+                    >
+                      <span className="round__option-recap-letter">{l}</span>
+                      <span className="round__option-recap-text">
+                        {prevQuiz.options[l]}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div>
             <div className="round__section-label">あなたの回答</div>
             <div className="round__user-content markdown">
