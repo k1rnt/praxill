@@ -79,6 +79,13 @@ export default function RootLayout({
               <div className="app-header__spacer" />
               <Link
                 className="btn btn--ghost btn--sm"
+                href="/search"
+                aria-label="検索"
+              >
+                🔍
+              </Link>
+              <Link
+                className="btn btn--ghost btn--sm"
                 href="/settings"
                 aria-label="設定"
               >

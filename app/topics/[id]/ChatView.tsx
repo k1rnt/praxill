@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Message, Topic } from "@/lib/db";
@@ -157,15 +157,43 @@ export default function ChatView({
 
   const lastRoundId = rounds[rounds.length - 1]?.user.id ?? null;
 
+  // If the page was opened from a search result, focus the round that
+  // contains the matched message. focus can match either side of the round
+  // (user message or assistant message).
+  const searchParams = useSearchParams();
+  const focusParam = searchParams.get("focus");
+  const focusedRoundUserId = useMemo(() => {
+    if (!focusParam) return null;
+    const targetId = Number(focusParam);
+    if (Number.isNaN(targetId)) return null;
+    const match = rounds.find(
+      (r) => r.user.id === targetId || r.assistant?.id === targetId,
+    );
+    return match?.user.id ?? null;
+  }, [focusParam, rounds]);
+
   // When a new round arrives (user just submitted), collapse every other
   // round so the latest one is the only thing in view. Old rounds the user
   // had open get tucked back away to reduce noise while waiting for / reading
   // the new result. The user can still re-expand any past round manually.
+  // When `focus` is set, also keep that round open.
   useEffect(() => {
-    if (lastRoundId !== null) {
-      setOpenRounds(new Set([lastRoundId]));
-    }
-  }, [lastRoundId]);
+    if (lastRoundId === null) return;
+    const next = new Set<number>([lastRoundId]);
+    if (focusedRoundUserId !== null) next.add(focusedRoundUserId);
+    setOpenRounds(next);
+  }, [lastRoundId, focusedRoundUserId]);
+
+  // Scroll the focused round into view once it's rendered.
+  useEffect(() => {
+    if (focusedRoundUserId === null) return;
+    const t = setTimeout(() => {
+      document
+        .getElementById(`round-${focusedRoundUserId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
+    return () => clearTimeout(t);
+  }, [focusedRoundUserId]);
 
   const toggleRound = (id: number) => {
     setOpenRounds((prev) => {
@@ -523,6 +551,7 @@ function RoundCard({
 
   return (
     <div
+      id={`round-${round.user.id}`}
       className={[
         "round",
         isOpen && "round--open",

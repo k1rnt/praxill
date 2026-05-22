@@ -1586,6 +1586,146 @@ kbd {
   justify-content: flex-end;
 }
 
+/* Search page */
+.search {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.search__bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search__input {
+  flex: 1;
+  padding: 12px 38px 12px 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--fg);
+  font-size: 16px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.search__input:focus {
+  border-color: var(--accent);
+}
+
+.search__clear {
+  position: absolute;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg-elev-2);
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg-muted);
+  font-size: 0.88rem;
+}
+
+.search__empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  padding: 18px;
+  text-align: center;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+
+.search__results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.search__result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--fg);
+}
+
+.search__result:hover {
+  border-color: var(--border-strong);
+  text-decoration: none;
+}
+
+.search__result-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+}
+
+.search__role {
+  font-weight: 700;
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+  flex: 0 0 auto;
+}
+
+.search__role--user {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.search__role--assistant {
+  background: var(--bg-elev-2);
+  color: var(--fg-muted);
+}
+
+.search__topic-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  font-weight: 500;
+}
+
+.search__snippet {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--fg);
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.search__snippet mark {
+  background: var(--warning-soft);
+  color: var(--fg);
+  padding: 0 2px;
+  border-radius: 3px;
+  font-weight: 700;
+}
+
 .preview__raw-text {
   white-space: pre-wrap;
   background: var(--bg-elev);

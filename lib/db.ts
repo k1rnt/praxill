@@ -84,6 +84,48 @@ function init(db: Database.Database) {
   db.exec(
     "UPDATE topics SET pending_user_message_id = NULL WHERE pending_user_message_id IS NOT NULL",
   );
+
+  // Full-text search over message content. External-content mode + trigram
+  // tokenizer — the trigram approach works well for CJK because it doesn't
+  // depend on whitespace tokenization. Triggers keep the FTS index in lock
+  // step with the messages table; a one-shot backfill below populates the
+  // index for any data that pre-dates this column.
+  db.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+      content,
+      content='messages',
+      content_rowid='id',
+      tokenize='trigram'
+    );
+    CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN
+      INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+    END;
+    CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, content)
+      VALUES ('delete', old.id, old.content);
+    END;
+    CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE OF content ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, content)
+      VALUES ('delete', old.id, old.content);
+      INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content);
+    END;
+  `);
+  const ftsCount = (
+    db
+      .prepare("SELECT COUNT(*) AS c FROM messages_fts")
+      .get() as { c: number }
+  ).c;
+  const msgCount = (
+    db
+      .prepare("SELECT COUNT(*) AS c FROM messages")
+      .get() as { c: number }
+  ).c;
+  // External-content FTS5 tables must be populated via the `rebuild` command
+  // — direct INSERTs only register row metadata, not the index entries the
+  // trigram tokenizer needs to actually match anything.
+  if (ftsCount !== msgCount && msgCount > 0) {
+    db.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");
+  }
 }
 
 export function getDb(): Database.Database {
@@ -197,6 +239,105 @@ export function listMessages(
   return getDb().prepare(sql).all(topicId) as Message[];
 }
 
+export type SearchResult = {
+  message_id: number;
+  topic_id: string;
+  topic_title: string;
+  role: "user" | "assistant";
+  created_at: string;
+  snippet: string;
+};
+
+const SNIPPET_PREFIX = "⟪"; // ⟪ — used as a HTML-safe marker; client splits on it
+const SNIPPET_SUFFIX = "⟫"; // ⟫
+
+/**
+ * Search past messages by keyword. Uses the trigram FTS index for queries
+ * of length ≥ 3, falls back to LIKE for 1-2 char queries (trigram can't
+ * index sub-3-char tokens). Hidden meta messages are excluded.
+ */
+export function searchMessages(query: string, limit = 50): SearchResult[] {
+  const q = query.trim();
+  if (q.length === 0) return [];
+  const db = getDb();
+
+  if (q.length >= 3) {
+    // Treat the user's input as a single phrase so FTS operators like
+    // AND/OR/NOT inside it are escaped to literal text.
+    const phrase = '"' + q.replace(/"/g, '""') + '"';
+    return db
+      .prepare(
+        `
+        SELECT
+          m.id          AS message_id,
+          m.topic_id    AS topic_id,
+          t.title       AS topic_title,
+          m.role        AS role,
+          m.created_at  AS created_at,
+          snippet(messages_fts, 0, ?, ?, '…', 25) AS snippet
+        FROM messages_fts fts
+        JOIN messages m ON m.id = fts.rowid
+        JOIN topics   t ON t.id = m.topic_id
+        WHERE messages_fts MATCH ?
+          AND m.hidden = 0
+        ORDER BY rank
+        LIMIT ?
+      `,
+      )
+      .all(SNIPPET_PREFIX, SNIPPET_SUFFIX, phrase, limit) as SearchResult[];
+  }
+
+  // LIKE fallback — wrap the matched span with the same markers so the
+  // client can highlight it uniformly.
+  const pattern = "%" + q + "%";
+  const rows = db
+    .prepare(
+      `
+      SELECT
+        m.id          AS message_id,
+        m.topic_id    AS topic_id,
+        t.title       AS topic_title,
+        m.role        AS role,
+        m.created_at  AS created_at,
+        m.content     AS content
+      FROM messages m
+      JOIN topics t ON t.id = m.topic_id
+      WHERE m.hidden = 0 AND m.content LIKE ?
+      ORDER BY m.id DESC
+      LIMIT ?
+    `,
+    )
+    .all(pattern, limit) as Array<SearchResult & { content: string }>;
+  // Build a snippet client-side that mimics what snippet() does
+  return rows.map((r) => {
+    const content = r.content;
+    const idx = content.toLowerCase().indexOf(q.toLowerCase());
+    let start = Math.max(0, idx - 30);
+    let snippet = content.slice(start, start + 200);
+    if (start > 0) snippet = "…" + snippet;
+    if (start + 200 < content.length) snippet = snippet + "…";
+    // Wrap the matched span
+    const lowSnip = snippet.toLowerCase();
+    const m = lowSnip.indexOf(q.toLowerCase());
+    if (m >= 0) {
+      snippet =
+        snippet.slice(0, m) +
+        SNIPPET_PREFIX +
+        snippet.slice(m, m + q.length) +
+        SNIPPET_SUFFIX +
+        snippet.slice(m + q.length);
+    }
+    return {
+      message_id: r.message_id,
+      topic_id: r.topic_id,
+      topic_title: r.topic_title,
+      role: r.role,
+      created_at: r.created_at,
+      snippet,
+    };
+  });
+}
+
 /**
  * Replace the entire database with the supplied topics + messages atomically.
  * Used by the /api/import endpoint when restoring a backup. Resets
@@ -249,6 +390,10 @@ export function replaceAll(topics: Topic[], messages: Message[]) {
         "INSERT INTO sqlite_sequence (name, seq) VALUES ('messages', ?)",
       ).run(maxId);
     }
+
+    // Rebuild the FTS index from scratch so any cruft from the previous
+    // dataset is gone and every new row is searchable.
+    db.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");
   });
   tx();
 }
