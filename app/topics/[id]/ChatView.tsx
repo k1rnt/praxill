@@ -41,7 +41,8 @@ function buildRounds(visible: Message[]): Round[] {
 }
 
 function summarizeRound(round: Round): {
-  qLabel: string | null;
+  qLabel: string;
+  qLabelKind: "regular" | "summary" | "freeform";
   title: string;
   sub: string;
   result: "correct" | "incorrect" | null;
@@ -55,8 +56,14 @@ function summarizeRound(round: Round): {
   const result = round.assistant ? detectQuizResult(round.assistant.content) : null;
 
   if (prevQuiz && userAnswer) {
+    const isSummary = prevQuiz.kind === "summary";
     return {
-      qLabel: `Q${prevQuiz.number}`,
+      qLabel: isSummary
+        ? "📚 まとめ"
+        : prevQuiz.number
+          ? `Q${prevQuiz.number}`
+          : "❓",
+      qLabelKind: isSummary ? "summary" : "regular",
       title: prevQuiz.title || "（タイトルなし）",
       sub: `あなたの回答: ${userAnswer}`,
       result,
@@ -65,7 +72,8 @@ function summarizeRound(round: Round): {
 
   const oneLine = round.user.content.replace(/\s+/g, " ").trim();
   return {
-    qLabel: null,
+    qLabel: "💬",
+    qLabelKind: "freeform",
     title: oneLine.length > 60 ? oneLine.slice(0, 60) + "…" : oneLine,
     sub: "フリーテキスト",
     result,
@@ -215,26 +223,29 @@ export default function ChatView({
     }
   }, [quizMode, mapMode]);
 
-  async function send(content: string) {
+  async function send(content: string, opts: { hidden?: boolean } = {}) {
     if (sending || !content.trim()) return;
     setSending(true);
     setError(null);
 
+    const hidden = opts.hidden === true;
     const optimistic: Message = {
       id: -Date.now(),
       topic_id: topicState.id,
       role: "user",
       content,
-      hidden: 0,
+      hidden: hidden ? 1 : 0,
       created_at: new Date().toISOString(),
     };
-    setMessages((m) => [...m, optimistic]);
+    if (!hidden) {
+      setMessages((m) => [...m, optimistic]);
+    }
 
     try {
       const res = await fetch(`/api/topics/${topicState.id}/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, hidden }),
       });
       const data = (await res.json()) as {
         message?: Message;
@@ -279,8 +290,10 @@ export default function ChatView({
     send(
       "ここまでのPhaseの総まとめ問題を1問出題してください。" +
         "Phase内の複数の概念を組み合わせて判断させる問題にしてください。" +
-        "出題タイトルは「Phase X まとめ問題」のように、通常問題と区別できるようにしてください。" +
-        "今後も、Phase が切り替わる前に必ずまとめ問題を挟んでください。",
+        "通常問題と同じ4択フォーマット(A/B/C/Dの選択肢、シナリオあり)で出題し、" +
+        "見出しは「### Phase X まとめ問題. {タイトル}」の形にしてください。" +
+        "今後も、Phase が切り替わる前に必ず同様のまとめ問題を挟んでください。",
+      { hidden: true },
     );
   }
 
@@ -367,14 +380,21 @@ export default function ChatView({
               onClick={() => setQuizMode(true)}
               disabled={sending}
             >
-              <span className="start-quiz__icon">📝</span>
+              <span className="start-quiz__icon">
+                {quiz.kind === "summary" ? "📚" : "📝"}
+              </span>
               <span className="start-quiz__body">
                 <span className="start-quiz__title">
-                  {sending ? "Trainer が考え中…" : "学習を始める"}
+                  {sending
+                    ? "Trainer が考え中…"
+                    : quiz.kind === "summary"
+                      ? "まとめ問題に挑戦"
+                      : "学習を始める"}
                 </span>
                 <span className="start-quiz__sub">
-                  Q{quiz.number}
-                  {quiz.title ? `. ${quiz.title}` : ""}
+                  {quiz.number
+                    ? `Q${quiz.number}${quiz.title ? `. ${quiz.title}` : ""}`
+                    : quiz.title || "（タイトルなし）"}
                 </span>
               </span>
               <span className="start-quiz__chev" aria-hidden>
@@ -439,7 +459,7 @@ function RoundCard({
   isOpen: boolean;
   onToggle: () => void;
 }) {
-  const { qLabel, title, sub, result } = summarizeRound(round);
+  const { qLabel, qLabelKind, title, sub, result } = summarizeRound(round);
 
   // Pending = user submitted but Trainer hasn't replied yet
   const pending = round.assistant === null;
@@ -463,11 +483,9 @@ function RoundCard({
         aria-expanded={isOpen}
       >
         <span
-          className={`round__qbadge ${
-            qLabel === null ? "round__qbadge--freeform" : ""
-          }`}
+          className={`round__qbadge round__qbadge--${qLabelKind}`}
         >
-          {qLabel ?? "💬"}
+          {qLabel}
         </span>
         <span className="round__summary">
           <span className="round__summary-title">{title}</span>
@@ -746,7 +764,13 @@ function QuizOverlay({
         >
           ← 一旦戻る
         </button>
-        <span className="quiz-overlay__qno">Q{quiz.number}</span>
+        <span className="quiz-overlay__qno">
+          {quiz.kind === "summary"
+            ? "📚 まとめ"
+            : quiz.number
+              ? `Q${quiz.number}`
+              : "問題"}
+        </span>
         <span className="quiz-overlay__title">{quiz.title}</span>
       </div>
 

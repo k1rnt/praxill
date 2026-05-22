@@ -12,7 +12,7 @@ export async function POST(
   ctx: RouteContext<"/api/topics/[id]/answer">,
 ) {
   const { id } = await ctx.params;
-  const body = (await req.json()) as { content?: string };
+  const body = (await req.json()) as { content?: string; hidden?: boolean };
   const content = body.content?.trim();
   if (!content) {
     return NextResponse.json({ error: "content is required" }, { status: 400 });
@@ -22,7 +22,10 @@ export async function POST(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  addMessage(id, "user", content);
+  // hidden=true is used for meta requests (e.g. "📚 まとめ" button) so the
+  // user-visible round structure isn't polluted by the request text. The
+  // Trainer's reply, which carries the new quiz, stays visible.
+  addMessage(id, "user", content, body.hidden === true);
 
   try {
     const result = topic.thread_id

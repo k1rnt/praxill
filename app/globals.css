@@ -503,6 +503,11 @@ kbd {
   color: var(--fg-muted);
 }
 
+.round__qbadge--summary {
+  background: rgba(247, 192, 122, 0.18);
+  color: var(--warning);
+}
+
 .round__summary {
   flex: 1;
   min-width: 0;
