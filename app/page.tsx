@@ -27,9 +27,9 @@ export default function Home() {
 
   return (
     <main className="app-main">
-      <h1 className="page-title">あなたの教科書</h1>
+      <h1 className="page-title">あなたの Praxill</h1>
       <p className="page-subtitle">
-        題材ごとにクイズ形式で学び、進捗を蓄積します。
+        題材ごとに対話で4択を解きながら、自分だけの教科書を育てます。
       </p>
 
       {topics.length === 0 ? (

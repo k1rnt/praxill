@@ -3,8 +3,8 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Personal Textbook",
-  description: "自分専用のクイズ式教科書",
+  title: "Praxill",
+  description: "対話で育てる、自分だけの教科書",
 };
 
 export const viewport: Viewport = {
@@ -74,7 +74,7 @@ export default function RootLayout({
           <header className="app-header">
             <div className="app-header__inner">
               <div className="app-header__title">
-                <Link href="/">📘 Textbook</Link>
+                <Link href="/">🪶 Praxill</Link>
               </div>
               <div className="app-header__spacer" />
               <Link

@@ -12,7 +12,7 @@ export async function GET() {
   );
 
   const payload = {
-    format: "personal-textbook",
+    format: "praxill",
     version: 1,
     exported_at: new Date().toISOString(),
     counts: { topics: topics.length, messages: messages.length },
@@ -21,7 +21,7 @@ export async function GET() {
   };
 
   const body = JSON.stringify(payload, null, 2);
-  const filename = `personal-textbook-${new Date().toISOString().slice(0, 10)}.json`;
+  const filename = `praxill-${new Date().toISOString().slice(0, 10)}.json`;
   return new NextResponse(body, {
     headers: {
       "Content-Type": "application/json; charset=utf-8",

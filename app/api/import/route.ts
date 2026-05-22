@@ -40,9 +40,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "JSON のパースに失敗しました" }, { status: 400 });
   }
 
-  if (body.format && body.format !== "personal-textbook") {
+  // Accept the new "praxill" identifier and the legacy "personal-textbook"
+  // identifier from older backups.
+  if (
+    body.format &&
+    body.format !== "praxill" &&
+    body.format !== "personal-textbook"
+  ) {
     return NextResponse.json(
-      { error: "personal-textbook 形式ではありません" },
+      { error: "praxill 形式ではありません" },
       { status: 400 },
     );
   }

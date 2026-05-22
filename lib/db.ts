@@ -6,12 +6,27 @@ import os from "node:os";
 // Store the SQLite database OUTSIDE the project directory so its WAL/SHM
 // sidecar files do not trip the Next.js dev file watcher (which would force
 // page reloads and wipe form state).
-const DB_DIR =
-  process.env.TEXTBOOK_DATA_DIR ||
-  path.join(
-    process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"),
-    "personal-textbook",
-  );
+function resolveDbDir(): string {
+  const explicit =
+    process.env.PRAXILL_DATA_DIR || process.env.TEXTBOOK_DATA_DIR;
+  if (explicit) return explicit;
+  const xdg =
+    process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
+  const newDir = path.join(xdg, "praxill");
+  const legacyDir = path.join(xdg, "personal-textbook");
+  // One-time migration from the pre-rebrand directory. If the new dir doesn't
+  // exist yet but the old one does, move it so the user keeps all their data
+  // without lifting a finger.
+  if (!fs.existsSync(newDir) && fs.existsSync(legacyDir)) {
+    try {
+      fs.renameSync(legacyDir, newDir);
+    } catch {
+      return legacyDir;
+    }
+  }
+  return newDir;
+}
+const DB_DIR = resolveDbDir();
 const DB_PATH = path.join(DB_DIR, "textbook.db");
 
 declare global {

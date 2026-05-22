@@ -50,7 +50,7 @@ export default function SettingsView() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `personal-textbook-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `praxill-${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -70,8 +70,8 @@ export default function SettingsView() {
     try {
       const text = await file.text();
       const data = JSON.parse(text) as Record<string, unknown>;
-      if (data.format !== "personal-textbook") {
-        throw new Error("personal-textbook 形式ではありません");
+      if (data.format !== "praxill" && data.format !== "personal-textbook") {
+        throw new Error("praxill 形式ではありません");
       }
       if (data.version !== 1) {
         throw new Error(`未対応の version です (${data.version})`);

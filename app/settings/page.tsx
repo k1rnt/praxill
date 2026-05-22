@@ -2,7 +2,7 @@ import Link from "next/link";
 import SettingsView from "./SettingsView";
 
 export const metadata = {
-  title: "設定 — Personal Textbook",
+  title: "設定 — Praxill",
 };
 
 export default function SettingsPage() {
