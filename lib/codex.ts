@@ -3,7 +3,12 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 const CODEX_BIN = process.env.CODEX_BIN || "codex";
 const MODEL = process.env.CODEX_MODEL || "gpt-5.5";
 const REASONING = process.env.CODEX_REASONING || "medium";
-const TIMEOUT_MS = Number(process.env.CODEX_TIMEOUT_MS || 5 * 60 * 1000);
+// Guard against CODEX_TIMEOUT_MS="abc" — Number(...) → NaN and
+// setTimeout(NaN) fires immediately, which would 500 every codex call.
+const TIMEOUT_MS = (() => {
+  const raw = Number(process.env.CODEX_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 5 * 60 * 1000;
+})();
 
 export type CodexResult = {
   threadId: string | null;

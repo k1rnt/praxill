@@ -154,10 +154,13 @@ export async function POST(
     if (topic.status !== "active") return { kind: "not_active", topic };
     if (topic.codex_lock !== null) return { kind: "busy", topic };
 
+    // Skip "__codex error__" messages — if the previous turn failed, the
+    // real quiz still lives in the assistant message before that.
     const prevAssistant = db
       .prepare(
         `SELECT content FROM messages
          WHERE topic_id = ? AND role = 'assistant' AND hidden = 0
+           AND content NOT LIKE '\\_\\_codex error\\_\\_%' ESCAPE '\\'
          ORDER BY id DESC LIMIT 1`,
       )
       .get(id) as { content: string } | undefined;

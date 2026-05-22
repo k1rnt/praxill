@@ -80,28 +80,67 @@ export function parseLatestQuiz(text: string): Quiz | null {
 
 /**
  * Decide whether the Trainer's message expresses a correct or incorrect
- * verdict. We scan the opening ~600 characters (verdicts always come early)
- * with a broad Japanese vocabulary so phrasings like "Bが正解です" /
- * "正しい選択肢は B" / "おしい、間違いです" all get picked up. When both a
- * correct cue and an incorrect cue appear, the one that comes first wins —
- * the Trainer's first sentence is the verdict, anything after is exposition.
+ * verdict. The Trainer is instructed to lead with "正解です。" or "不正解
+ * です。" on its own first line, so we check that strict form first.
+ *
+ * The looser fallback only matches verdict-shaped phrases — 正解/正答
+ * must be followed by a copula or sentence-ending punctuation, and is
+ * excluded when followed by は/が because that turns it into a noun
+ * ("the correct answer is X" — says nothing about whether the user was
+ * correct).
  */
 export function detectQuizResult(
   text: string,
 ): "correct" | "incorrect" | null {
   if (!text) return null;
-  const head = text.slice(0, 600);
 
-  // Note: order matters — `不正解` must be checked before `正解` so we don't
-  // accidentally match the substring "正解" inside "不正解".
-  const wrongRe =
-    /(?:❌|✕|✖|🔴|×|不正解|不正答|誤り|誤った|誤って|間違い|間違って|残念|惜し[いく]|外れ)/;
-  const correctRe =
-    /(?:✅|⭕|🟢|◯|○|◎|[大]?正解|正答|的中|正しい|当たり)/;
+  // Strict: explicit verdict on the very first line.
+  const firstLine = (text.split(/\r?\n/)[0] ?? "").trim();
+  if (
+    /^(?:❌|✕|✖|🔴|×|残念[、,，]?\s*|惜し[いく][、,，]?\s*)*不正解(?:です|でした|！|!|。|$)/.test(
+      firstLine,
+    )
+  )
+    return "incorrect";
+  if (
+    /^(?:✅|⭕|🟢|◯|○|◎)?\s*[大]?正解(?:です|でした|！|!|。|$)/.test(firstLine)
+  )
+    return "correct";
+
+  // Loose fallback for non-conforming responses. Verdict words must be
+  // followed by a copula or punctuation, and 正解/正答 followed by は/が
+  // (the noun-phrase pattern) is excluded.
+  const head = text.slice(0, 400);
+  const SUFFIX = "(?:です|でした|だ|だった|！|!|。|\\s|$)";
+  const wrongRe = new RegExp(
+    "(?:❌|✕|✖|🔴|×|不正解" +
+      SUFFIX +
+      "|誤[りっ]" +
+      SUFFIX +
+      "|残念" +
+      SUFFIX +
+      "|惜し[いく]" +
+      SUFFIX +
+      "|間違[いっ]" +
+      SUFFIX +
+      "|外れ" +
+      SUFFIX +
+      ")",
+  );
+  const correctRe = new RegExp(
+    "(?:✅|⭕|🟢|◯|○|◎|[大]?正解(?![はが])" +
+      SUFFIX +
+      "|正答(?![はが])" +
+      SUFFIX +
+      "|的中|正しい" +
+      SUFFIX +
+      "|当たり" +
+      SUFFIX +
+      ")",
+  );
 
   const w = head.match(wrongRe);
   const c = head.match(correctRe);
-
   if (w && !c) return "incorrect";
   if (c && !w) return "correct";
   if (c && w) {
