@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
+import { randomUUID } from "node:crypto";
 
 // Store the SQLite database OUTSIDE the project directory so its WAL/SHM
 // sidecar files do not trip the Next.js dev file watcher (which would force
@@ -73,6 +74,13 @@ function init(db: Database.Database) {
       FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_messages_topic ON messages(topic_id, id);
+    -- App-level singletons (instance id, schema version, etc.). Intentionally
+    -- outside the export/import surface so identity doesn't travel with
+    -- restored data.
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
   // Migrate older databases that pre-date status / hidden columns
   ensureColumn(db, "topics", "status", "TEXT NOT NULL DEFAULT 'active'");
@@ -127,6 +135,13 @@ function init(db: Database.Database) {
   // UI falls back to parsing the first assistant message for those.
   ensureColumn(db, "topics", "knowledge_map_markdown", "TEXT");
 
+  // Which praxill instance owns the codex thread referenced by thread_id.
+  // NULL means "unknown / not yet resumable" — typically set right after
+  // a successful codexStart on this instance and cleared on import from
+  // a different instance. Separate from "who created the topic" so
+  // collaborative provenance can be added later without colliding.
+  ensureColumn(db, "topics", "thread_owner_instance_id", "TEXT");
+
   // Full-text search over message content. External-content mode + trigram
   // tokenizer — the trigram approach works well for CJK because it doesn't
   // depend on whitespace tokenization. Triggers keep the FTS index in lock
@@ -179,6 +194,34 @@ export function getDb(): Database.Database {
   return db;
 }
 
+// Module-level cache — looked up once per process so /api routes don't hit
+// the DB for every call.
+let cachedLocalInstanceId: string | null = null;
+
+/**
+ * Stable per-installation identifier. Generated on first boot and stored in
+ * app_meta so it survives restarts. NOT exported / imported across DB
+ * restores — that's the whole point: two installations end up with
+ * different IDs, and we can tell when a topic's thread came from elsewhere.
+ */
+export function getLocalInstanceId(): string {
+  if (cachedLocalInstanceId) return cachedLocalInstanceId;
+  const db = getDb();
+  const existing = db
+    .prepare("SELECT value FROM app_meta WHERE key = 'local_instance_id'")
+    .get() as { value: string } | undefined;
+  if (existing) {
+    cachedLocalInstanceId = existing.value;
+    return existing.value;
+  }
+  const generated = randomUUID();
+  db.prepare(
+    "INSERT INTO app_meta (key, value) VALUES ('local_instance_id', ?)",
+  ).run(generated);
+  cachedLocalInstanceId = generated;
+  return generated;
+}
+
 export type TopicStatus = "draft" | "active";
 
 export type Topic = {
@@ -195,6 +238,7 @@ export type Topic = {
   pending_user_message_id: number | null;
   codex_lock: string | null;
   knowledge_map_markdown: string | null;
+  thread_owner_instance_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -252,6 +296,7 @@ export function updateTopic(
       | "pending_user_message_id"
       | "codex_lock"
       | "knowledge_map_markdown"
+      | "thread_owner_instance_id"
     >
   >,
 ) {
@@ -477,12 +522,14 @@ export function replaceAll(topics: Topic[], messages: Message[]) {
       id, title, subject, goal, thread_id,
       current_phase, total_phases, correct_count, total_count,
       status, pending_user_message_id, codex_lock,
-      knowledge_map_markdown, created_at, updated_at
+      knowledge_map_markdown, thread_owner_instance_id,
+      created_at, updated_at
     ) VALUES (
       @id, @title, @subject, @goal, @thread_id,
       @current_phase, @total_phases, @correct_count, @total_count,
       @status, @pending_user_message_id, @codex_lock,
-      @knowledge_map_markdown, @created_at, @updated_at
+      @knowledge_map_markdown, @thread_owner_instance_id,
+      @created_at, @updated_at
     )
   `);
   const insertMessage = db.prepare(`
@@ -506,6 +553,7 @@ export function replaceAll(topics: Topic[], messages: Message[]) {
         pending_user_message_id: null,
         codex_lock: null,
         knowledge_map_markdown: t.knowledge_map_markdown ?? null,
+        thread_owner_instance_id: t.thread_owner_instance_id ?? null,
       });
     }
     for (const m of messages) {
