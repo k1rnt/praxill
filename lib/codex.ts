@@ -173,8 +173,25 @@ function runCodex(
       resolve({ threadId, text, rawEvents: events });
     });
 
-    child.stdin.write(prompt);
-    child.stdin.end();
+    // If codex exits before we finish writing the prompt, the pipe is
+    // closed and `child.stdin.write` would otherwise emit an unhandled
+    // EPIPE that crashes the Next.js process. We surface it through the
+    // existing reject path; the close/error handlers below also fire,
+    // but they're idempotent thanks to clearTimeout + cleanup().
+    child.stdin.on("error", (err) => {
+      console.error("[codex] stdin error:", err);
+      // No reject here — child.on("close" | "error") will reject with a
+      // better message; this listener exists solely to keep the event
+      // from becoming an uncaughtException.
+    });
+    try {
+      child.stdin.write(prompt, (err) => {
+        if (err) console.error("[codex] stdin write callback error:", err);
+      });
+      child.stdin.end();
+    } catch (err) {
+      console.error("[codex] stdin write threw:", err);
+    }
   });
 }
 

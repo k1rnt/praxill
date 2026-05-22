@@ -167,7 +167,16 @@ export function buildRehydrationPrompt(opts: {
   messages: Array<{ role: "user" | "assistant"; content: string; hidden?: 0 | 1 | boolean }>;
 }): string {
   const RECENT_N = 12;
-  const visible = opts.messages.filter((m) => !m.hidden);
+  // Filter out hidden meta exchanges (📚 まとめ requests etc.) from the
+  // historical context, but ALWAYS keep the very last message. If the
+  // user's latest input came from a hidden trigger (e.g. they just pressed
+  // 📚), dropping it would leave the Trainer with no question to answer.
+  const lastMsg =
+    opts.messages.length > 0
+      ? opts.messages[opts.messages.length - 1]
+      : null;
+  const historical = opts.messages.slice(0, -1).filter((m) => !m.hidden);
+  const visible = lastMsg ? [...historical, lastMsg] : historical;
   const recent = visible.slice(-RECENT_N);
   const olderCount = Math.max(0, visible.length - recent.length);
 

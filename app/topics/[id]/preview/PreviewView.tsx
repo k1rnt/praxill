@@ -123,7 +123,13 @@ export default function PreviewView({
     if (deleting) return;
     setDeleting(true);
     try {
-      await fetch(`/api/topics/${topic.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/topics/${topic.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(data.error ?? `削除に失敗しました (HTTP ${res.status})`);
+      }
       router.push("/");
       router.refresh();
     } catch (err) {

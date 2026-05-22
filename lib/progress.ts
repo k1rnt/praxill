@@ -1,3 +1,5 @@
+import { detectQuizResult } from "./parseQuiz";
+
 export type ProgressDelta = {
   currentPhase?: number;
   totalPhases?: number;
@@ -46,23 +48,14 @@ export function parseAssistantProgress(
     if (maxPhase !== undefined && maxPhase > 0) delta.totalPhases = maxPhase;
   }
 
-  const head = text.slice(0, 400);
-  const correctHit =
-    /(?:^|\n)\s*(?:✅|⭕|🟢|◯|○)|(?:^|\n|\s)(?:正解|正答)(?:です|！|!|。|\s|$)/.test(
-      head,
-    );
-  const wrongHit =
-    /(?:^|\n)\s*(?:❌|✕|✖|🔴|×)|(?:^|\n|\s)(?:不正解|誤り|残念)(?:です|！|!|。|\s|$)/.test(
-      head,
-    );
-
-  if (correctHit && !wrongHit) {
+  // Use the same verdict detector the UI uses (detectQuizResult) so the
+  // green "✓ 正解" chip in the round header and the DB score counter
+  // can't disagree on whether a given response was correct.
+  const verdict = detectQuizResult(text);
+  if (verdict === "correct") {
     delta.correctIncrement = 1;
     delta.totalIncrement = 1;
-  } else if (wrongHit && !correctHit) {
-    delta.totalIncrement = 1;
-  } else if (correctHit && wrongHit) {
-    // ambiguous (both keywords appear in feedback header) — count as attempt only
+  } else if (verdict === "incorrect") {
     delta.totalIncrement = 1;
   }
 

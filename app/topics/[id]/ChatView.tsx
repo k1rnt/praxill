@@ -471,7 +471,15 @@ export default function ChatView({
     if (deleting) return;
     setDeleting(true);
     try {
-      await fetch(`/api/topics/${topicState.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/topics/${topicState.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(data.error ?? `削除に失敗しました (HTTP ${res.status})`);
+      }
       router.push("/");
       router.refresh();
     } catch (err) {

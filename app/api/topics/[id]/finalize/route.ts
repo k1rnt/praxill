@@ -29,6 +29,14 @@ export async function POST(
     typeof body.mapMarkdown === "string" ? body.mapMarkdown.trim() : "";
   if (!mapMarkdown) return badRequest("mapMarkdown is required");
 
+  // Reject obviously-broken maps: the editor lets the user delete every
+  // Phase, but a topic with 0 Phases would have nothing to score against
+  // and would render as "Phase 1 / 0" in the progress bar.
+  const parsedForValidation = parseKnowledgeMap(mapMarkdown);
+  if (!parsedForValidation || parsedForValidation.phases.length === 0) {
+    return badRequest("知識マップには少なくとも 1 つの Phase が必要です");
+  }
+
   // Two execution paths share the lock:
   //   - resume path  : the local install owns the thread, use codexResume
   //                    with buildFinalizePrompt (current behaviour).
