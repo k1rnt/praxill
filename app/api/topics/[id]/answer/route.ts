@@ -4,7 +4,9 @@ import { randomUUID } from "node:crypto";
 import {
   addMessage,
   getDb,
+  getLocalInstanceId,
   getTopic,
+  listMessages,
   updateTopic,
   withCodexLock,
   type Message,
@@ -12,10 +14,27 @@ import {
 import { codexResume, codexStart } from "@/lib/codex";
 import { parseAssistantProgress } from "@/lib/progress";
 import { parseLatestQuiz } from "@/lib/parseQuiz";
+import { buildRehydrationPrompt } from "@/lib/prompt";
 import { badRequest, readJsonObject, sanitizeCodexError } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+function buildRehydrationFromDb(topicId: string): string | null {
+  const topic = getTopic(topicId);
+  if (!topic) return null;
+  const messages = listMessages(topicId, { includeHidden: true });
+  return buildRehydrationPrompt({
+    subject: topic.subject,
+    goal: topic.goal,
+    knowledgeMapMarkdown: topic.knowledge_map_markdown,
+    currentPhase: topic.current_phase,
+    totalPhases: topic.total_phases,
+    correctCount: topic.correct_count,
+    totalCount: topic.total_count,
+    messages,
+  });
+}
 
 async function runCodexInBackground(
   topicId: string,
@@ -25,10 +44,36 @@ async function runCodexInBackground(
   shouldScore: boolean,
   reasoning?: string,
 ) {
+  const localInstanceId = getLocalInstanceId();
+
   try {
-    const result = threadId
-      ? await codexResume(threadId, content, reasoning, lockId)
-      : await codexStart(content, reasoning, lockId);
+    // Three execution paths:
+    //   1. thread_id present → codexResume normally
+    //   2. thread_id present but resume fails → rehydration fallback
+    //   3. thread_id null (imported / never started) → rehydration straight away
+    // Paths 2 and 3 spawn a fresh codex thread and re-stamp the topic with
+    // the new thread_id + local_instance_id as the owner.
+    let result;
+    let rehydrated = false;
+    if (threadId !== null) {
+      try {
+        result = await codexResume(threadId, content, reasoning, lockId);
+      } catch (resumeErr) {
+        console.warn(
+          `[answer] codexResume failed for topic ${topicId}; rehydrating new thread`,
+          resumeErr,
+        );
+        const rehydrationPrompt = buildRehydrationFromDb(topicId);
+        if (!rehydrationPrompt) throw resumeErr;
+        result = await codexStart(rehydrationPrompt, reasoning, lockId);
+        rehydrated = true;
+      }
+    } else {
+      const rehydrationPrompt = buildRehydrationFromDb(topicId);
+      if (!rehydrationPrompt) throw new Error("topic not found");
+      result = await codexStart(rehydrationPrompt, reasoning, lockId);
+      rehydrated = true;
+    }
 
     const wrote = withCodexLock(topicId, lockId, (topic) => {
       addMessage(topicId, "assistant", result.text);
@@ -38,14 +83,14 @@ async function runCodexInBackground(
           ? Math.max(topic.current_phase, progress.currentPhase)
           : undefined;
 
-      // Always update phase/thread, never increment progress counters
-      // unless this exchange is an actual quiz answer. Otherwise free
-      // questions / 📚 まとめ requests that mention "正解" in the
-      // explanation would inflate the score.
       const patch: Parameters<typeof updateTopic>[1] = {
         thread_id: result.threadId ?? topic.thread_id ?? undefined,
         current_phase: phaseUpdate,
       };
+      if (rehydrated && result.threadId) {
+        // This installation now owns the new thread.
+        patch.thread_owner_instance_id = localInstanceId;
+      }
       if (shouldScore) {
         const incrementing =
           progress.correctIncrement !== undefined ||
@@ -90,10 +135,6 @@ export async function POST(
       ? (body.reasoning as "medium" | "high")
       : undefined;
 
-  // Score only if this content looks like a real quiz answer ("回答: A" etc.)
-  // AND there is a parseable quiz in the previous assistant message. Free
-  // questions ("分からない"), 📚 まとめ requests etc. shouldn't bump the
-  // counter regardless of what the Trainer says back.
   const isAnswerShaped = /^\s*回答[:：]\s*[A-D]\s*$/m.test(content);
 
   const lockId = randomUUID();
@@ -113,8 +154,6 @@ export async function POST(
     if (topic.status !== "active") return { kind: "not_active", topic };
     if (topic.codex_lock !== null) return { kind: "busy", topic };
 
-    // Look up the latest non-hidden assistant message to confirm there's a
-    // quiz the user could plausibly be answering.
     const prevAssistant = db
       .prepare(
         `SELECT content FROM messages

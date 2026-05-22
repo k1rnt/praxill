@@ -4,6 +4,7 @@ import {
   addMessage,
   createTopic,
   getDb,
+  getLocalInstanceId,
   getTopic,
   listTopics,
   updateTopic,
@@ -37,6 +38,7 @@ async function runDraftInBackground(
       const progress = parseAssistantProgress(result.text, true);
       updateTopic(topicId, {
         thread_id: result.threadId,
+        thread_owner_instance_id: getLocalInstanceId(),
         current_phase: 1,
         total_phases: progress.totalPhases,
         knowledge_map_markdown: stripLatestQuiz(result.text),

@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import {
   addMessage,
   getDb,
+  getLocalInstanceId,
   getTopic,
   updateTopic,
   withCodexLock,
@@ -79,6 +80,7 @@ export async function POST(
       const progress = parseAssistantProgress(result.text, true);
       updateTopic(id, {
         thread_id: result.threadId,
+        thread_owner_instance_id: getLocalInstanceId(),
         current_phase: 1,
         total_phases: progress.totalPhases,
         knowledge_map_markdown: stripLatestQuiz(result.text),
