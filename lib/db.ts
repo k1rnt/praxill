@@ -77,6 +77,13 @@ function init(db: Database.Database) {
   // Migrate older databases that pre-date status / hidden columns
   ensureColumn(db, "topics", "status", "TEXT NOT NULL DEFAULT 'active'");
   ensureColumn(db, "messages", "hidden", "INTEGER NOT NULL DEFAULT 0");
+  // Track in-flight async codex calls per topic. NULL = idle; otherwise the
+  // user message that's waiting for a Trainer reply. Cleared on boot because
+  // any background codex process is gone after a server restart.
+  ensureColumn(db, "topics", "pending_user_message_id", "INTEGER");
+  db.exec(
+    "UPDATE topics SET pending_user_message_id = NULL WHERE pending_user_message_id IS NOT NULL",
+  );
 }
 
 export function getDb(): Database.Database {
@@ -101,6 +108,7 @@ export type Topic = {
   correct_count: number;
   total_count: number;
   status: TopicStatus;
+  pending_user_message_id: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -155,6 +163,7 @@ export function updateTopic(
       | "total_count"
       | "title"
       | "status"
+      | "pending_user_message_id"
     >
   >,
 ) {
@@ -199,11 +208,11 @@ export function replaceAll(topics: Topic[], messages: Message[]) {
     INSERT INTO topics (
       id, title, subject, goal, thread_id,
       current_phase, total_phases, correct_count, total_count,
-      status, created_at, updated_at
+      status, pending_user_message_id, created_at, updated_at
     ) VALUES (
       @id, @title, @subject, @goal, @thread_id,
       @current_phase, @total_phases, @correct_count, @total_count,
-      @status, @created_at, @updated_at
+      @status, @pending_user_message_id, @created_at, @updated_at
     )
   `);
   const insertMessage = db.prepare(`
@@ -222,6 +231,9 @@ export function replaceAll(topics: Topic[], messages: Message[]) {
         ...t,
         thread_id: t.thread_id ?? null,
         status: t.status ?? "active",
+        // Imported topics start clean — no in-flight codex calls survive the
+        // import boundary.
+        pending_user_message_id: null,
       });
     }
     for (const m of messages) {

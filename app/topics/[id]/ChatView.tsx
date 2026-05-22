@@ -50,7 +50,12 @@ function summarizeRound(round: Round): {
   const prevQuiz = round.prevAssistant
     ? parseLatestQuiz(round.prevAssistant.content)
     : null;
-  const userMatch = round.user.content.match(/(?:^|\n)\s*回答[:：]\s*([A-D])/);
+  // Accept "回答: A" (the structured format) AND a bare letter (legacy
+  // free-text submissions when the quiz wasn't recognised as tappable yet).
+  const trimmedUser = round.user.content.trim();
+  const userMatch =
+    trimmedUser.match(/(?:^|\n)\s*回答[:：]\s*([A-D])/) ??
+    trimmedUser.match(/^([A-D])(?:\s|$)/);
   const userAnswer = userMatch?.[1] ?? null;
 
   const result = round.assistant ? detectQuizResult(round.assistant.content) : null;
@@ -122,9 +127,15 @@ export default function ChatView({
   const [confidence, setConfidence] = useState("");
   const [showExtras, setShowExtras] = useState(false);
   const [freeText, setFreeText] = useState("");
-  const [sending, setSending] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  // Server-side codex is async — `pending_user_message_id` on the topic tells
+  // us a background call is in flight. `submitting` is the short blip while
+  // POST /answer is making the round-trip itself.
+  const isPending = topicState.pending_user_message_id !== null;
+  const sending = submitting || isPending;
 
   const visibleMessages = useMemo(
     () => messages.filter((_, idx) => !(idx === 0 && messages[0]?.role === "user")),
@@ -223,24 +234,47 @@ export default function ChatView({
     }
   }, [quizMode, mapMode]);
 
+  // Poll for the Trainer's reply while a codex call is running server-side.
+  // Survives the mobile tab being backgrounded — when the tab comes back the
+  // polling effect re-fires from a clean state and the assistant message is
+  // already saved in the DB.
+  useEffect(() => {
+    if (!isPending) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(`/api/topics/${topicState.id}`);
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          topic: Topic;
+          messages: Message[];
+        };
+        if (cancelled) return;
+        setMessages(data.messages);
+        setTopicState(data.topic);
+      } catch {
+        // Network blip — the next interval tick will retry.
+      }
+    };
+
+    // First poll quickly (some calls finish in <5s), then steady cadence
+    const fast = setTimeout(poll, 1500);
+    const interval = setInterval(poll, 4000);
+    return () => {
+      cancelled = true;
+      clearTimeout(fast);
+      clearInterval(interval);
+    };
+  }, [topicState.id, isPending]);
+
   async function send(content: string, opts: { hidden?: boolean } = {}) {
     if (sending || !content.trim()) return;
-    setSending(true);
+    setSubmitting(true);
     setError(null);
 
     const hidden = opts.hidden === true;
-    const optimistic: Message = {
-      id: -Date.now(),
-      topic_id: topicState.id,
-      role: "user",
-      content,
-      hidden: hidden ? 1 : 0,
-      created_at: new Date().toISOString(),
-    };
-    if (!hidden) {
-      setMessages((m) => [...m, optimistic]);
-    }
-
     let reasoning: "medium" | "high" | undefined;
     try {
       const stored = localStorage.getItem("reasoning");
@@ -256,17 +290,21 @@ export default function ChatView({
         body: JSON.stringify({ content, hidden, reasoning }),
       });
       const data = (await res.json()) as {
-        message?: Message;
+        userMessage?: Message;
         topic?: Topic;
         error?: string;
       };
       if (data.topic) setTopicState(data.topic);
-      if (data.message) setMessages((m) => [...m, data.message!]);
-      if (!res.ok) setError(data.error ?? "送信に失敗しました");
+      if (!hidden && data.userMessage) {
+        setMessages((m) => [...m, data.userMessage!]);
+      }
+      if (!res.ok) {
+        setError(data.error ?? "送信に失敗しました");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "ネットワークエラー");
     } finally {
-      setSending(false);
+      setSubmitting(false);
     }
   }
 
@@ -477,9 +515,10 @@ function RoundCard({
   const prevQuiz = round.prevAssistant
     ? parseLatestQuiz(round.prevAssistant.content)
     : null;
-  const userChoiceMatch = round.user.content.match(
-    /(?:^|\n)\s*回答[:：]\s*([A-D])/,
-  );
+  const trimmedUserContent = round.user.content.trim();
+  const userChoiceMatch =
+    trimmedUserContent.match(/(?:^|\n)\s*回答[:：]\s*([A-D])/) ??
+    trimmedUserContent.match(/^([A-D])(?:\s|$)/);
   const userChoice = userChoiceMatch?.[1] as Letter | undefined;
 
   return (

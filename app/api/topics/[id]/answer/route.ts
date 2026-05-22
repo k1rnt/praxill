@@ -1,11 +1,62 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { addMessage, getTopic, updateTopic } from "@/lib/db";
+import {
+  addMessage,
+  getTopic,
+  updateTopic,
+  type Message,
+} from "@/lib/db";
 import { codexResume, codexStart } from "@/lib/codex";
 import { parseAssistantProgress } from "@/lib/progress";
 
 export const dynamic = "force-dynamic";
+// We return the request as soon as the user message is stored — codex runs
+// in the background. Keep maxDuration generous so the background task isn't
+// killed by Next.js.
 export const maxDuration = 300;
+
+async function runCodexInBackground(
+  topicId: string,
+  threadId: string | null,
+  content: string,
+  reasoning?: string,
+) {
+  try {
+    const result = threadId
+      ? await codexResume(threadId, content, reasoning)
+      : await codexStart(content, reasoning);
+
+    addMessage(topicId, "assistant", result.text);
+    const progress = parseAssistantProgress(result.text, false);
+    const topic = getTopic(topicId);
+    if (!topic) return;
+
+    const newCorrect =
+      topic.correct_count + (progress.correctIncrement ?? 0);
+    const newTotal = topic.total_count + (progress.totalIncrement ?? 0);
+    const phaseUpdate =
+      progress.currentPhase !== undefined
+        ? Math.max(topic.current_phase, progress.currentPhase)
+        : undefined;
+
+    updateTopic(topicId, {
+      thread_id: result.threadId ?? topic.thread_id ?? undefined,
+      current_phase: phaseUpdate,
+      correct_count:
+        progress.correctIncrement !== undefined ||
+        progress.totalIncrement !== undefined
+          ? newCorrect
+          : undefined,
+      total_count:
+        progress.totalIncrement !== undefined ? newTotal : undefined,
+      pending_user_message_id: null,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    addMessage(topicId, "assistant", `__codex error__\n\n${msg}`);
+    updateTopic(topicId, { pending_user_message_id: null });
+  }
+}
 
 export async function POST(
   req: NextRequest,
@@ -26,56 +77,47 @@ export async function POST(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  // Per-request reasoning override (lets the user pick "fast" or "quality"
-  // from the settings page). Falls back to the env-driven default in codex.ts
-  // when the value is unrecognised.
+  // Reject duplicate submissions while one is already pending so a flaky
+  // mobile network doesn't fire two codex calls for the same Q.
+  if (topic.pending_user_message_id !== null) {
+    return NextResponse.json(
+      { error: "別の回答を処理中です", topic },
+      { status: 409 },
+    );
+  }
+
   const reasoning =
     body.reasoning === "medium" || body.reasoning === "high"
       ? body.reasoning
       : undefined;
 
-  // hidden=true is used for meta requests (e.g. "📚 まとめ" button) so the
-  // user-visible round structure isn't polluted by the request text. The
-  // Trainer's reply, which carries the new quiz, stays visible.
-  addMessage(id, "user", content, body.hidden === true);
+  // Save the user message synchronously, mark the topic as pending. The
+  // client can immediately render the user bubble and start polling for the
+  // Trainer's reply.
+  const userMessage: Message = addMessage(
+    id,
+    "user",
+    content,
+    body.hidden === true,
+  );
+  updateTopic(id, { pending_user_message_id: userMessage.id });
 
-  try {
-    const result = topic.thread_id
-      ? await codexResume(topic.thread_id, content, reasoning)
-      : await codexStart(content, reasoning);
+  // Fire-and-forget. We deliberately do NOT await so the HTTP response
+  // returns in milliseconds — the mobile browser can background the tab and
+  // come back to a finished result.
+  runCodexInBackground(
+    id,
+    topic.thread_id ?? null,
+    content,
+    reasoning,
+  ).catch((err) => {
+    // Already handled inside the background function, but log here too in
+    // case its error handler itself blows up.
+    console.error("[answer] background codex unhandled:", err);
+  });
 
-    const message = addMessage(id, "assistant", result.text);
-    const progress = parseAssistantProgress(result.text, false);
-
-    const newCorrect =
-      topic.correct_count + (progress.correctIncrement ?? 0);
-    const newTotal = topic.total_count + (progress.totalIncrement ?? 0);
-    const phaseUpdate =
-      progress.currentPhase !== undefined
-        ? Math.max(topic.current_phase, progress.currentPhase)
-        : undefined;
-
-    updateTopic(id, {
-      thread_id: result.threadId ?? topic.thread_id ?? undefined,
-      current_phase: phaseUpdate,
-      correct_count:
-        progress.correctIncrement !== undefined || progress.totalIncrement !== undefined
-          ? newCorrect
-          : undefined,
-      total_count:
-        progress.totalIncrement !== undefined ? newTotal : undefined,
-    });
-
-    return NextResponse.json({
-      message,
-      topic: getTopic(id),
-    });
-  } catch (err) {
-    const errMessage = err instanceof Error ? err.message : String(err);
-    const stored = addMessage(id, "assistant", `__codex error__\n\n${errMessage}`);
-    return NextResponse.json(
-      { message: stored, topic: getTopic(id), error: errMessage },
-      { status: 500 },
-    );
-  }
+  return NextResponse.json({
+    topic: getTopic(id),
+    userMessage,
+  });
 }
