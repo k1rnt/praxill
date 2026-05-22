@@ -72,23 +72,39 @@ export async function POST(
     );
   }
 
+  // Run the codex call. Three possible paths:
+  //   - thread_id present + resume succeeds → normal hot path
+  //   - thread_id present + resume fails → rebootstrap a fresh thread
+  //     (covers v1 backups restored on a new machine, ~/.codex/sessions
+  //     wipes, codex CLI format changes)
+  //   - thread_id null → rebootstrap straight away
+  const startBootstrap = () =>
+    codexStart(
+      buildDraftPrompt(claim.subject, claim.goal) + "\n\n" + finalizePrompt,
+      undefined,
+      lockId,
+    );
   try {
     let result;
     let newThreadOwner: string | null = null;
     if (claim.threadId) {
-      result = await codexResume(
-        claim.threadId,
-        finalizePrompt,
-        undefined,
-        lockId,
-      );
+      try {
+        result = await codexResume(
+          claim.threadId,
+          finalizePrompt,
+          undefined,
+          lockId,
+        );
+      } catch (resumeErr) {
+        console.warn(
+          `[finalize] codexResume failed for ${id}; rebootstrapping`,
+          resumeErr,
+        );
+        result = await startBootstrap();
+        newThreadOwner = getLocalInstanceId();
+      }
     } else {
-      // No live codex thread (foreign-source import or retry-draft that
-      // lost its thread). Start a fresh thread, seeding it with the same
-      // draft bootstrap that originally taught the Trainer the rules.
-      const bootstrap =
-        buildDraftPrompt(claim.subject, claim.goal) + "\n\n" + finalizePrompt;
-      result = await codexStart(bootstrap, undefined, lockId);
+      result = await startBootstrap();
       newThreadOwner = getLocalInstanceId();
     }
 

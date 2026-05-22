@@ -109,9 +109,35 @@ export async function POST(
     return NextResponse.json({ topic: getTopic(id), mapMarkdown });
   } catch (err) {
     const message = sanitizeCodexError(err);
-    withCodexLock(id, lockId, () => {
+    // codexResume failed — most commonly because the local
+    // ~/.codex/sessions doesn't have this thread (foreign-source import
+    // or stale state). Still persist the map update to DB so the next
+    // /answer's rehydration can pick it up, and null out the thread so
+    // /answer takes the codexStart branch.
+    withCodexLock(id, lockId, (topic) => {
       addMessage(id, "assistant", `__codex error__\n\n${message}`, true);
+      const parsed = parseKnowledgeMap(mapMarkdown);
+      const newTotalPhases = parsed?.phases.length;
+      const clampedCurrent =
+        newTotalPhases !== undefined
+          ? Math.min(topic.current_phase, newTotalPhases)
+          : undefined;
+      updateTopic(id, {
+        total_phases: newTotalPhases,
+        current_phase: clampedCurrent,
+        knowledge_map_markdown: mapMarkdown,
+        thread_id: null,
+        thread_owner_instance_id: null,
+      });
     });
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      {
+        topic: getTopic(id),
+        mapMarkdown,
+        warning:
+          "Codex への伝達に失敗しましたが、マップは保存しました。次回の回答時に新しいセッションで反映されます。",
+      },
+      { status: 200 },
+    );
   }
 }
