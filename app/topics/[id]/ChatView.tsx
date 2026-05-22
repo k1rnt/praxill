@@ -138,14 +138,13 @@ export default function ChatView({
 
   const lastRoundId = rounds[rounds.length - 1]?.user.id ?? null;
 
-  // Whenever a brand-new round appears (user just submitted), auto-expand it
-  // so the result/feedback is visible. Existing open/closed states are kept.
+  // When a new round arrives (user just submitted), collapse every other
+  // round so the latest one is the only thing in view. Old rounds the user
+  // had open get tucked back away to reduce noise while waiting for / reading
+  // the new result. The user can still re-expand any past round manually.
   useEffect(() => {
     if (lastRoundId !== null) {
-      setOpenRounds((prev) => {
-        if (prev.has(lastRoundId)) return prev;
-        return new Set([...prev, lastRoundId]);
-      });
+      setOpenRounds(new Set([lastRoundId]));
     }
   }, [lastRoundId]);
 
