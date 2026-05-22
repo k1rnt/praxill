@@ -987,17 +987,26 @@ kbd {
 }
 
 .start-quiz__title {
+  display: block;
   font-size: 0.95rem;
   font-weight: 700;
   margin-bottom: 2px;
-}
-
-.start-quiz__sub {
-  font-size: 0.78rem;
-  opacity: 0.78;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.start-quiz__sub {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.78rem;
+  opacity: 0.78;
+  line-height: 1.35;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .start-quiz__chev {
