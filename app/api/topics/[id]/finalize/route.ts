@@ -4,12 +4,13 @@ import { randomUUID } from "node:crypto";
 import {
   addMessage,
   getDb,
+  getLocalInstanceId,
   getTopic,
   updateTopic,
   withCodexLock,
 } from "@/lib/db";
-import { codexResume } from "@/lib/codex";
-import { buildFinalizePrompt } from "@/lib/prompt";
+import { codexResume, codexStart } from "@/lib/codex";
+import { buildDraftPrompt, buildFinalizePrompt } from "@/lib/prompt";
 import { parseAssistantProgress } from "@/lib/progress";
 import { parseKnowledgeMap } from "@/lib/parseKnowledgeMap";
 import { badRequest, readJsonObject, sanitizeCodexError } from "@/lib/http";
@@ -28,27 +29,34 @@ export async function POST(
     typeof body.mapMarkdown === "string" ? body.mapMarkdown.trim() : "";
   if (!mapMarkdown) return badRequest("mapMarkdown is required");
 
-  // Atomic claim of the codex lock + status validation + persisting the
-  // hidden user prompt in one shot. Doing the user-message INSERT inside
-  // the same transaction means a disk-full failure rolls back the lock as
-  // well, instead of leaving the topic permanently "busy".
-  const prompt = buildFinalizePrompt(mapMarkdown);
+  // Two execution paths share the lock:
+  //   - resume path  : the local install owns the thread, use codexResume
+  //                    with buildFinalizePrompt (current behaviour).
+  //   - start  path  : thread_id is null (foreign-source draft import or
+  //                    retry-draft that lost its thread). Open a brand-new
+  //                    thread by combining the original buildDraftPrompt
+  //                    bootstrap with the finalize instruction, so the
+  //                    Trainer has both the rules and the confirmed map.
+  const finalizePrompt = buildFinalizePrompt(mapMarkdown);
   const lockId = randomUUID();
   const db = getDb();
   const claim = db.transaction(():
     | { kind: "notfound" }
     | { kind: "already_active"; topic: ReturnType<typeof getTopic> }
     | { kind: "busy" }
-    | { kind: "no_thread" }
-    | { kind: "ok"; threadId: string } => {
+    | { kind: "ok"; threadId: string | null; subject: string; goal: string } => {
     const topic = getTopic(id);
     if (!topic) return { kind: "notfound" };
     if (topic.status === "active") return { kind: "already_active", topic };
     if (topic.codex_lock !== null) return { kind: "busy" };
-    if (!topic.thread_id) return { kind: "no_thread" };
-    addMessage(id, "user", prompt, true);
+    addMessage(id, "user", finalizePrompt, true);
     updateTopic(id, { codex_lock: lockId });
-    return { kind: "ok", threadId: topic.thread_id };
+    return {
+      kind: "ok",
+      threadId: topic.thread_id,
+      subject: topic.subject,
+      goal: topic.goal,
+    };
   })();
 
   if (claim.kind === "notfound") {
@@ -63,15 +71,26 @@ export async function POST(
       { status: 409 },
     );
   }
-  if (claim.kind === "no_thread") {
-    return NextResponse.json(
-      { error: "topic has no thread to resume" },
-      { status: 400 },
-    );
-  }
 
   try {
-    const result = await codexResume(claim.threadId, prompt, undefined, lockId);
+    let result;
+    let newThreadOwner: string | null = null;
+    if (claim.threadId) {
+      result = await codexResume(
+        claim.threadId,
+        finalizePrompt,
+        undefined,
+        lockId,
+      );
+    } else {
+      // No live codex thread (foreign-source import or retry-draft that
+      // lost its thread). Start a fresh thread, seeding it with the same
+      // draft bootstrap that originally taught the Trainer the rules.
+      const bootstrap =
+        buildDraftPrompt(claim.subject, claim.goal) + "\n\n" + finalizePrompt;
+      result = await codexStart(bootstrap, undefined, lockId);
+      newThreadOwner = getLocalInstanceId();
+    }
 
     const wrote = withCodexLock(id, lockId, () => {
       addMessage(id, "assistant", result.text);
@@ -83,6 +102,8 @@ export async function POST(
         total_phases: totalPhases,
         current_phase: progress.currentPhase ?? 1,
         knowledge_map_markdown: mapMarkdown,
+        thread_id: result.threadId ?? undefined,
+        thread_owner_instance_id: newThreadOwner ?? undefined,
       });
     });
 

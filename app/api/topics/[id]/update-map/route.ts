@@ -30,19 +30,36 @@ export async function POST(
   // Atomic claim — guards against concurrent answer/finalize/update-map
   // writes to the same codex thread. Persisting the hidden user prompt
   // happens inside the same transaction so a failed INSERT rolls back the
-  // lock too.
+  // lock too. If thread_id is null (e.g. foreign-source import), we skip
+  // the codex call entirely; the next /answer will rehydrate a fresh
+  // thread and pick up the new map.
   const prompt = buildMapUpdatePrompt(mapMarkdown);
   const lockId = randomUUID();
   const db = getDb();
   const claim = db.transaction(():
     | { kind: "notfound" }
     | { kind: "busy" }
-    | { kind: "no_thread" }
+    | { kind: "no_thread_dbonly" }
     | { kind: "ok"; threadId: string } => {
     const topic = getTopic(id);
     if (!topic) return { kind: "notfound" };
     if (topic.codex_lock !== null) return { kind: "busy" };
-    if (!topic.thread_id) return { kind: "no_thread" };
+    if (!topic.thread_id) {
+      // DB-only path: persist the new map immediately so the next
+      // /answer's rehydration prompt picks it up.
+      const parsed = parseKnowledgeMap(mapMarkdown);
+      const newTotalPhases = parsed?.phases.length;
+      const clampedCurrent =
+        newTotalPhases !== undefined
+          ? Math.min(topic.current_phase, newTotalPhases)
+          : undefined;
+      updateTopic(id, {
+        total_phases: newTotalPhases,
+        current_phase: clampedCurrent,
+        knowledge_map_markdown: mapMarkdown,
+      });
+      return { kind: "no_thread_dbonly" };
+    }
     addMessage(id, "user", prompt, true);
     updateTopic(id, { codex_lock: lockId });
     return { kind: "ok", threadId: topic.thread_id };
@@ -57,11 +74,11 @@ export async function POST(
       { status: 409 },
     );
   }
-  if (claim.kind === "no_thread") {
-    return NextResponse.json(
-      { error: "topic has no thread to resume" },
-      { status: 400 },
-    );
+  if (claim.kind === "no_thread_dbonly") {
+    // Topic has no live codex thread (typically an imported one). Map
+    // updated in DB only; rehydration will fold the new map into the
+    // next prompt.
+    return NextResponse.json({ topic: getTopic(id), mapMarkdown });
   }
 
   try {
