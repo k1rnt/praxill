@@ -321,42 +321,6 @@ export function deleteTopic(id: string) {
 }
 
 /**
- * Atomically try to take the per-topic codex lock. Returns true if we now
- * own it (no concurrent codex call). When `pendingUserMessageId` is given,
- * we also stamp it on the topic in the same statement so a /answer call
- * appears "pending" to the client polling endpoint in one trip.
- *
- * Use a fresh randomUUID per call as the `lockId` — store it client-side
- * so the background completion can verify it still owns the lock before
- * writing the assistant message.
- */
-export function claimCodexLock(
-  topicId: string,
-  lockId: string,
-  pendingUserMessageId?: number,
-): boolean {
-  const now = new Date().toISOString();
-  if (pendingUserMessageId !== undefined) {
-    const r = getDb()
-      .prepare(
-        `UPDATE topics
-           SET codex_lock = ?, pending_user_message_id = ?, updated_at = ?
-         WHERE id = ? AND codex_lock IS NULL`,
-      )
-      .run(lockId, pendingUserMessageId, now, topicId);
-    return r.changes > 0;
-  }
-  const r = getDb()
-    .prepare(
-      `UPDATE topics
-         SET codex_lock = ?, updated_at = ?
-       WHERE id = ? AND codex_lock IS NULL`,
-    )
-    .run(lockId, now, topicId);
-  return r.changes > 0;
-}
-
-/**
  * Run a write transaction that only takes effect if this caller still owns
  * the lock. Used by codex completion so a stale response from a deleted /
  * replaced / imported-over topic can't corrupt state. Auto-releases the
@@ -364,6 +328,11 @@ export function claimCodexLock(
  *
  * Returns true if `op` ran (caller wrote successfully) or false if the lock
  * was lost (caller should silently drop its result).
+ *
+ * Note: claim is done inline at each call site via a write transaction
+ * (`UPDATE topics SET codex_lock = ? WHERE codex_lock IS NULL` style) — a
+ * separate claimCodexLock helper used to exist but was retired once every
+ * route needed to atomically write a user message alongside the claim.
  */
 export function withCodexLock(
   topicId: string,
@@ -382,21 +351,6 @@ export function withCodexLock(
     return true;
   });
   return tx();
-}
-
-/**
- * Release the lock only if we still own it. Used in error / cleanup paths
- * where the caller already gave up its claim atomically (e.g. inside
- * withCodexLock the op didn't run because the lock was lost).
- */
-export function releaseCodexLock(topicId: string, lockId: string): void {
-  getDb()
-    .prepare(
-      `UPDATE topics
-         SET codex_lock = NULL, pending_user_message_id = NULL, updated_at = ?
-       WHERE id = ? AND codex_lock = ?`,
-    )
-    .run(new Date().toISOString(), lockId, topicId);
 }
 
 export function listMessages(
