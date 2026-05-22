@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import SearchView from "./SearchView";
 
 export const metadata = {
@@ -17,7 +18,9 @@ export default function SearchPage() {
       <p className="page-subtitle">
         過去の問題・回答・解説を横断検索します。
       </p>
-      <SearchView />
+      <Suspense fallback={null}>
+        <SearchView />
+      </Suspense>
     </main>
   );
 }

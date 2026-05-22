@@ -67,7 +67,20 @@ function runCodex(args: string[], prompt: string): Promise<CodexResult> {
           // Ignore malformed JSON lines
         }
       }
-      resolve({ threadId, text: messages.join("\n\n"), rawEvents: events });
+      const text = messages.join("\n\n");
+      if (!text.trim()) {
+        // Codex exited successfully but emitted no agent_message — usually
+        // a refusal, a tool-only response, or a malformed JSONL line. Treat
+        // as a failure so the caller stores an error message and clears
+        // pending state instead of saving a blank assistant reply.
+        reject(
+          new Error(
+            `codex returned no message text (events: ${events.length})`,
+          ),
+        );
+        return;
+      }
+      resolve({ threadId, text, rawEvents: events });
     });
 
     child.stdin.write(prompt);

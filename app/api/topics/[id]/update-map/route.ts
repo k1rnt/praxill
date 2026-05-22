@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { addMessage, getTopic, updateTopic } from "@/lib/db";
+import { randomUUID } from "node:crypto";
+import {
+  addMessage,
+  getDb,
+  getTopic,
+  updateTopic,
+  withCodexLock,
+} from "@/lib/db";
 import { codexResume } from "@/lib/codex";
 import { buildMapUpdatePrompt } from "@/lib/prompt";
 import { parseKnowledgeMap } from "@/lib/parseKnowledgeMap";
@@ -21,11 +28,34 @@ export async function POST(
       { status: 400 },
     );
   }
-  const topic = getTopic(id);
-  if (!topic) {
+
+  // Atomic claim — guards against concurrent answer/finalize/update-map
+  // writes to the same codex thread.
+  const lockId = randomUUID();
+  const db = getDb();
+  const claim = db.transaction(():
+    | { kind: "notfound" }
+    | { kind: "busy" }
+    | { kind: "no_thread" }
+    | { kind: "ok"; threadId: string } => {
+    const topic = getTopic(id);
+    if (!topic) return { kind: "notfound" };
+    if (topic.codex_lock !== null) return { kind: "busy" };
+    if (!topic.thread_id) return { kind: "no_thread" };
+    updateTopic(id, { codex_lock: lockId });
+    return { kind: "ok", threadId: topic.thread_id };
+  })();
+
+  if (claim.kind === "notfound") {
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
-  if (!topic.thread_id) {
+  if (claim.kind === "busy") {
+    return NextResponse.json(
+      { error: "別の処理が進行中です" },
+      { status: 409 },
+    );
+  }
+  if (claim.kind === "no_thread") {
     return NextResponse.json(
       { error: "topic has no thread to resume" },
       { status: 400 },
@@ -33,21 +63,31 @@ export async function POST(
   }
 
   const prompt = buildMapUpdatePrompt(mapMarkdown);
-  // Both sides of this exchange are meta — keep them out of the chat
-  // scrollback so the user doesn't see "知識マップを更新します…" rounds.
   addMessage(id, "user", prompt, true);
 
   try {
-    const result = await codexResume(topic.thread_id, prompt);
-    addMessage(id, "assistant", result.text, true);
+    const result = await codexResume(claim.threadId, prompt);
 
-    const parsed = parseKnowledgeMap(mapMarkdown);
-    const totalPhases = parsed?.phases.length ?? topic.total_phases;
-    updateTopic(id, { total_phases: totalPhases });
+    const wrote = withCodexLock(id, lockId, () => {
+      addMessage(id, "assistant", result.text, true);
+      const parsed = parseKnowledgeMap(mapMarkdown);
+      updateTopic(id, {
+        total_phases: parsed?.phases.length,
+      });
+    });
 
+    if (!wrote) {
+      return NextResponse.json(
+        { error: "ロックが失われました。リトライしてください" },
+        { status: 409 },
+      );
+    }
     return NextResponse.json({ topic: getTopic(id), mapMarkdown });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    withCodexLock(id, lockId, () => {
+      addMessage(id, "assistant", `__codex error__\n\n${message}`, true);
+    });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

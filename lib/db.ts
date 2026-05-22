@@ -85,6 +85,14 @@ function init(db: Database.Database) {
     "UPDATE topics SET pending_user_message_id = NULL WHERE pending_user_message_id IS NOT NULL",
   );
 
+  // Per-topic mutual-exclusion lock for codex calls. NULL = idle; otherwise
+  // a UUID identifying the call that currently owns the topic. Cleared on
+  // boot because any background codex process is gone.
+  ensureColumn(db, "topics", "codex_lock", "TEXT");
+  db.exec(
+    "UPDATE topics SET codex_lock = NULL WHERE codex_lock IS NOT NULL",
+  );
+
   // Full-text search over message content. External-content mode + trigram
   // tokenizer — the trigram approach works well for CJK because it doesn't
   // depend on whitespace tokenization. Triggers keep the FTS index in lock
@@ -151,6 +159,7 @@ export type Topic = {
   total_count: number;
   status: TopicStatus;
   pending_user_message_id: number | null;
+  codex_lock: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -206,6 +215,7 @@ export function updateTopic(
       | "title"
       | "status"
       | "pending_user_message_id"
+      | "codex_lock"
     >
   >,
 ) {
@@ -227,6 +237,85 @@ export function updateTopic(
 
 export function deleteTopic(id: string) {
   getDb().prepare("DELETE FROM topics WHERE id = ?").run(id);
+}
+
+/**
+ * Atomically try to take the per-topic codex lock. Returns true if we now
+ * own it (no concurrent codex call). When `pendingUserMessageId` is given,
+ * we also stamp it on the topic in the same statement so a /answer call
+ * appears "pending" to the client polling endpoint in one trip.
+ *
+ * Use a fresh randomUUID per call as the `lockId` — store it client-side
+ * so the background completion can verify it still owns the lock before
+ * writing the assistant message.
+ */
+export function claimCodexLock(
+  topicId: string,
+  lockId: string,
+  pendingUserMessageId?: number,
+): boolean {
+  const now = new Date().toISOString();
+  if (pendingUserMessageId !== undefined) {
+    const r = getDb()
+      .prepare(
+        `UPDATE topics
+           SET codex_lock = ?, pending_user_message_id = ?, updated_at = ?
+         WHERE id = ? AND codex_lock IS NULL`,
+      )
+      .run(lockId, pendingUserMessageId, now, topicId);
+    return r.changes > 0;
+  }
+  const r = getDb()
+    .prepare(
+      `UPDATE topics
+         SET codex_lock = ?, updated_at = ?
+       WHERE id = ? AND codex_lock IS NULL`,
+    )
+    .run(lockId, now, topicId);
+  return r.changes > 0;
+}
+
+/**
+ * Run a write transaction that only takes effect if this caller still owns
+ * the lock. Used by codex completion so a stale response from a deleted /
+ * replaced / imported-over topic can't corrupt state. Auto-releases the
+ * lock and clears pending_user_message_id after `op` runs.
+ *
+ * Returns true if `op` ran (caller wrote successfully) or false if the lock
+ * was lost (caller should silently drop its result).
+ */
+export function withCodexLock(
+  topicId: string,
+  lockId: string,
+  op: (topic: Topic) => void,
+): boolean {
+  const db = getDb();
+  const tx = db.transaction(() => {
+    const topic = getTopic(topicId);
+    if (!topic || topic.codex_lock !== lockId) return false;
+    op(topic);
+    updateTopic(topicId, {
+      codex_lock: null,
+      pending_user_message_id: null,
+    });
+    return true;
+  });
+  return tx();
+}
+
+/**
+ * Release the lock only if we still own it. Used in error / cleanup paths
+ * where the caller already gave up its claim atomically (e.g. inside
+ * withCodexLock the op didn't run because the lock was lost).
+ */
+export function releaseCodexLock(topicId: string, lockId: string): void {
+  getDb()
+    .prepare(
+      `UPDATE topics
+         SET codex_lock = NULL, pending_user_message_id = NULL, updated_at = ?
+       WHERE id = ? AND codex_lock = ?`,
+    )
+    .run(new Date().toISOString(), lockId, topicId);
 }
 
 export function listMessages(
@@ -349,11 +438,11 @@ export function replaceAll(topics: Topic[], messages: Message[]) {
     INSERT INTO topics (
       id, title, subject, goal, thread_id,
       current_phase, total_phases, correct_count, total_count,
-      status, pending_user_message_id, created_at, updated_at
+      status, pending_user_message_id, codex_lock, created_at, updated_at
     ) VALUES (
       @id, @title, @subject, @goal, @thread_id,
       @current_phase, @total_phases, @correct_count, @total_count,
-      @status, @pending_user_message_id, @created_at, @updated_at
+      @status, @pending_user_message_id, @codex_lock, @created_at, @updated_at
     )
   `);
   const insertMessage = db.prepare(`
@@ -375,6 +464,7 @@ export function replaceAll(topics: Topic[], messages: Message[]) {
         // Imported topics start clean — no in-flight codex calls survive the
         // import boundary.
         pending_user_message_id: null,
+        codex_lock: null,
       });
     }
     for (const m of messages) {

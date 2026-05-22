@@ -352,7 +352,9 @@ export default function ChatView({
     [lastAssistant],
   );
 
-  // Reset quiz state whenever a new question arrives
+  // Reset quiz state whenever a new question arrives. Keying on the
+  // assistant message id (not quiz.number) so number-less summary quizzes
+  // and other consecutive Q's also trigger a clean slate.
   useEffect(() => {
     setSelected(null);
     setReason("");
@@ -360,7 +362,7 @@ export default function ChatView({
     setConfidence("");
     setShowExtras(false);
     setQuizMode(false);
-  }, [quiz?.number]);
+  }, [lastAssistant?.id]);
 
   // Lock body scroll while any full-screen overlay is open
   useEffect(() => {
