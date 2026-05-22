@@ -106,21 +106,25 @@ function init(db: Database.Database) {
     )
     .all() as { id: string }[];
   if (orphans.length > 0) {
-    const lastRoleStmt = db.prepare(
-      "SELECT role FROM messages WHERE topic_id = ? ORDER BY id DESC LIMIT 1",
+    const lastMsgStmt = db.prepare(
+      "SELECT role, hidden FROM messages WHERE topic_id = ? ORDER BY id DESC LIMIT 1",
     );
     const insertErr = db.prepare(
       `INSERT INTO messages (topic_id, role, content, hidden, created_at)
-       VALUES (?, 'assistant', ?, 0, ?)`,
+       VALUES (?, 'assistant', ?, ?, ?)`,
     );
     const now = new Date().toISOString();
     const message =
       "__codex error__\n\nサーバー再起動により処理が中断されました。もう一度送信してください。";
     for (const o of orphans) {
-      const last = lastRoleStmt.get(o.id) as { role?: string } | undefined;
-      if (last?.role === "user") {
-        insertErr.run(o.id, message, now);
-      }
+      const last = lastMsgStmt.get(o.id) as
+        | { role?: string; hidden?: number }
+        | undefined;
+      if (last?.role !== "user") continue;
+      // Match the hidden flag of the user message: a meta call (update-map
+      // mid-flight etc.) should stay out of the chat scrollback, while a
+      // real /answer interruption should surface to the user.
+      insertErr.run(o.id, message, last.hidden ? 1 : 0, now);
     }
     db.exec(
       `UPDATE topics

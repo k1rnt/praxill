@@ -44,6 +44,15 @@ export default function KnowledgeMapEditor({
     });
   }
 
+  // Only renumber labels that match the "Phase N" / "phase N" pattern.
+  // Custom labels (e.g. "おまけ", "Phase A") are preserved so user intent
+  // isn't trampled.
+  function renumber(phases: PhaseRow[]): PhaseRow[] {
+    return phases.map((p, i) =>
+      /^phase\s+\d+\s*$/i.test(p.phase) ? { ...p, phase: `Phase ${i + 1}` } : p,
+    );
+  }
+
   function addPhase() {
     const num = map.phases.length + 1;
     onChange({
@@ -55,7 +64,7 @@ export default function KnowledgeMapEditor({
   function removePhase(index: number) {
     onChange({
       ...map,
-      phases: map.phases.filter((_, i) => i !== index),
+      phases: renumber(map.phases.filter((_, i) => i !== index)),
     });
   }
 
@@ -64,7 +73,7 @@ export default function KnowledgeMapEditor({
     if (target < 0 || target >= map.phases.length) return;
     const next = [...map.phases];
     [next[index], next[target]] = [next[target], next[index]];
-    onChange({ ...map, phases: next });
+    onChange({ ...map, phases: renumber(next) });
   }
 
   return (
