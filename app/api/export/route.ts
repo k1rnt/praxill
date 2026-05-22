@@ -10,20 +10,19 @@ import {
 export const dynamic = "force-dynamic";
 
 /**
- * Build an export-time snapshot of the topic + messages. If the topic is
- * mid-flight (an /answer is currently waiting on codex), we'd otherwise
- * produce a transcript whose last entry is a user message with no reply —
- * the importer would render "永久採点中" on the restored side.
- *
- * To keep the export self-consistent: clear pending/lock on the snapshot,
- * and if the tail is an unanswered user message, append a synthetic
- * "interrupted" assistant message. The original in-memory codex call
- * still completes server-side and saves to the live DB; this only
- * sanitises the JSON payload.
+ * Sanitise an export-time snapshot. If the topic is mid-flight, the live
+ * transcript would have a user message with no reply. Re-importing that
+ * payload would resurface as "永久採点中" because there's nothing for the
+ * client poller to wait on. We:
+ *   - clear pending_user_message_id + codex_lock on the exported row
+ *   - if the tail is an unanswered user message, append a synthetic
+ *     "interrupted" assistant message via the provided id generator so
+ *     the round closes cleanly in the restored chat.
  */
 function sanitiseForExport(
   topic: Topic,
   messages: Message[],
+  nextSyntheticId: () => number,
 ): { topic: Topic; messages: Message[] } {
   const cleanedTopic: Topic = {
     ...topic,
@@ -33,10 +32,8 @@ function sanitiseForExport(
   if (messages.length === 0) return { topic: cleanedTopic, messages };
   const tail = messages[messages.length - 1];
   if (tail.role !== "user") return { topic: cleanedTopic, messages };
-  // Synthesise a terminal error so the round looks completed in the
-  // restored transcript.
   const synthetic: Message = {
-    id: tail.id + 0.5 < Number.MAX_SAFE_INTEGER ? tail.id + 1 : tail.id,
+    id: nextSyntheticId(),
     topic_id: tail.topic_id,
     role: "assistant",
     content:
@@ -44,20 +41,33 @@ function sanitiseForExport(
     hidden: 0,
     created_at: new Date().toISOString(),
   };
-  // Ensure unique id even if tail.id+1 is already in use.
-  if (messages.some((m) => m.id === synthetic.id)) {
-    synthetic.id = (messages.reduce((m, x) => Math.max(m, x.id), 0) ?? 0) + 1;
-  }
   return { topic: cleanedTopic, messages: [...messages, synthetic] };
 }
 
 export async function GET() {
   const rawTopics = listTopics();
+
+  // Generate synthetic message ids strictly above the global max across all
+  // topics — earlier we only checked within the same topic, which could
+  // collide with another topic's id and make the importer's duplicate
+  // detection refuse the whole payload.
+  let globalMaxId = 0;
+  const messagesByTopic = new Map<string, Message[]>();
+  for (const t of rawTopics) {
+    const ms = listMessages(t.id, { includeHidden: true });
+    messagesByTopic.set(t.id, ms);
+    for (const m of ms) {
+      if (m.id > globalMaxId) globalMaxId = m.id;
+    }
+  }
+  let nextSyntheticId = globalMaxId + 1;
+  const generateId = () => nextSyntheticId++;
+
   const cleanTopics: Topic[] = [];
   const cleanMessages: Message[] = [];
   for (const t of rawTopics) {
-    const ms = listMessages(t.id, { includeHidden: true });
-    const cleaned = sanitiseForExport(t, ms);
+    const ms = messagesByTopic.get(t.id) ?? [];
+    const cleaned = sanitiseForExport(t, ms, generateId);
     cleanTopics.push(cleaned.topic);
     cleanMessages.push(...cleaned.messages);
   }

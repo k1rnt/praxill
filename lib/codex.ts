@@ -56,6 +56,24 @@ export function cancelAllCodexCalls(): number {
   return cancelled;
 }
 
+// Hook into process termination so detached codex children are signalled
+// when systemd / dev-server stops Next.js. Without this, "detached: true"
+// would leave them alive while the parent dies — they'd keep eating
+// Codex tokens with no way for the user to reach them. process.once
+// dedupes if the module gets imported twice.
+if (typeof process !== "undefined" && !process.env.PRAXILL_CODEX_SHUTDOWN_INSTALLED) {
+  process.env.PRAXILL_CODEX_SHUTDOWN_INSTALLED = "1";
+  const shutdown = () => {
+    try {
+      cancelAllCodexCalls();
+    } catch (err) {
+      console.error("[codex] shutdown cancel failed:", err);
+    }
+  };
+  process.once("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
+}
+
 function runCodex(
   args: string[],
   prompt: string,
