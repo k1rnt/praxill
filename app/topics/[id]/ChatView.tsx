@@ -663,7 +663,7 @@ export default function ChatView({
                 {sending ? (
                   <WaitProgress
                     active={sending}
-                    label="Trainer が考え中…"
+                    label="考えています…"
                     variant="dock"
                   />
                 ) : (
@@ -1292,7 +1292,7 @@ function FreeComposer({
       </div>
       {sending && (
         <div className="composer__progress">
-          <WaitProgress active={sending} label="Trainer が考え中…" variant="panel" />
+          <WaitProgress active={sending} label="考えています…" variant="panel" />
         </div>
       )}
       <div className="composer__row">

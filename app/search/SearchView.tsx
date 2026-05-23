@@ -139,7 +139,7 @@ export default function SearchView() {
               <span
                 className={`search__role search__role--${r.role}`}
               >
-                {r.role === "user" ? "あなた" : "Trainer"}
+                {r.role === "user" ? "あなた" : "返信"}
               </span>
               <span className="search__topic-title">{r.topic_title}</span>
             </div>

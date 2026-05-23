@@ -37,7 +37,7 @@ export default async function PreviewPage(
     <main className="app-main">
       <h1 className="page-title">知識マップを確認</h1>
       <p className="page-subtitle">
-        Trainer が生成したマップです。そのまま使うか、編集して「学習を始める」を押してください。
+        生成された知識マップです。そのまま使うか、編集して確定してください。
       </p>
       <PreviewView
         topic={topic}
