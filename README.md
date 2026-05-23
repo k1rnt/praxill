@@ -26,6 +26,12 @@
 - Node.js ≥ 20.9 (mise 推奨)
 - `codex` CLI がインストール済み・ログイン済み
 
+> ⚠️ **セキュリティ注意**: 本アプリは Codex CLI を `--dangerously-bypass-approvals-and-sandbox` 付きで呼び出します。これは「自分の信頼できる端末で、自分のために動かす個人ツール」として設計されているためで、Codex がローカルで任意のコマンドを承認なしに実行できる状態になります。
+>
+> - 信頼できない LAN・公開ネットワーク・他人と共有する端末では動かさないでください
+> - そのまま production 用途や他人に提供する SaaS として展開しないでください
+> - サンドボックスを効かせて運用したい場合は `lib/codex.ts` の `buildArgs()` から `--dangerously-bypass-approvals-and-sandbox` を外してください（実行ごとに承認ダイアログが出るようになります）
+
 ## 起動
 
 ```bash
@@ -65,10 +71,11 @@ loginctl enable-linger $USER     # OS 起動と同時に立ち上げ
 | 変数 | デフォルト | 用途 |
 |---|---|---|
 | `CODEX_MODEL` | `gpt-5.5` | Codex に渡すモデル |
-| `CODEX_REASONING` | `medium` | reasoning effort |
+| `CODEX_REASONING` | `medium` | reasoning effort (`low` / `medium` / `high`)。上の systemd ユニット例では応答品質を優先して `high` を設定するのを推奨 |
 | `CODEX_TIMEOUT_MS` | `300000` | Codex 1呼び出しのタイムアウト (ms) |
 | `CODEX_BIN` | `codex` | Codex 実行コマンド |
 | `PRAXILL_DATA_DIR` | `~/.local/share/praxill` | SQLite 保存先 |
+| `PRAXILL_ALLOWED_DEV_ORIGINS` | (空) | dev サーバーへの追加 LAN オリジン (カンマ区切り)。ホスト名は自動検出されるので通常は不要 |
 
 ## 使い方
 
