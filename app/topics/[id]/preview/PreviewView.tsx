@@ -90,7 +90,10 @@ export default function PreviewView({
         setSubmitting(false);
         return;
       }
+      // Draft → active status change; the sidebar drops the "下書き" tag
+      // only after the layout's listTopics() rereads, so refresh too.
       router.push(`/topics/${topic.id}`);
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "ネットワークエラー");
       setSubmitting(false);

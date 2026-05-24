@@ -30,7 +30,11 @@ export default function NewTopicForm() {
         setSubmitting(false);
         return;
       }
+      // The desktop sidebar lives in the root layout and reads listTopics()
+      // server-side; without refresh() it wouldn't pick up the new row
+      // until a hard reload.
       router.push(`/topics/${data.topic.id}/preview`);
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "ネットワークエラー");
       setSubmitting(false);

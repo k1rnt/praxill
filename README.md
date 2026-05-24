@@ -63,7 +63,7 @@ loginctl enable-linger $USER     # OS 起動と同時に立ち上げ
 | 変数 | デフォルト | 用途 |
 |---|---|---|
 | `CODEX_MODEL` | `gpt-5.5` | Codex に渡すモデル |
-| `CODEX_REASONING` | `medium` | reasoning effort (`low` / `medium` / `high`) |
+| `CODEX_REASONING` | `medium` | reasoning effort (`medium` / `high`) |
 | `CODEX_TIMEOUT_MS` | `300000` | Codex 1呼び出しのタイムアウト (ms) |
 | `CODEX_BIN` | `codex` | Codex 実行コマンド |
 | `PRAXILL_DATA_DIR` | `~/.local/share/praxill` | SQLite 保存先 |

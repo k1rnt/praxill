@@ -16,6 +16,7 @@ import { parseAssistantProgress } from "@/lib/progress";
 import { parseLatestQuiz } from "@/lib/parseQuiz";
 import { buildRehydrationPrompt } from "@/lib/prompt";
 import { badRequest, readJsonObject, sanitizeCodexError } from "@/lib/http";
+import { SKIP_USER_CONTENT } from "@/lib/skip";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -35,12 +36,6 @@ function buildRehydrationFromDb(topicId: string): string | null {
     messages,
   });
 }
-
-// Marker prefix on the user message body when the user pressed the "分から
-// ない" button instead of picking A-D. Lets the chat view render a distinct
-// "分からなかった" badge and lets the server tell scoring/codex to treat
-// this as an explicit give-up.
-export const SKIP_MARKER = "[降参]";
 
 // Appended to the user's message when sent to codex on skip. Tells the
 // Trainer the user gave up rather than guessed wrong, so the response
@@ -86,13 +81,22 @@ async function runCodexInBackground(
         );
         const rehydrationPrompt = buildRehydrationFromDb(topicId);
         if (!rehydrationPrompt) throw resumeErr;
-        result = await codexStart(rehydrationPrompt, reasoning, lockId);
+        // Append the skip directive after rehydration so the Trainer still
+        // sees it on the resume-fail path; without this, skip degrades to
+        // a normal answer once the original thread is gone.
+        const promptWithSkip = isSkip
+          ? rehydrationPrompt + SKIP_DIRECTIVE
+          : rehydrationPrompt;
+        result = await codexStart(promptWithSkip, reasoning, lockId);
         rehydrated = true;
       }
     } else {
       const rehydrationPrompt = buildRehydrationFromDb(topicId);
       if (!rehydrationPrompt) throw new Error("topic not found");
-      result = await codexStart(rehydrationPrompt, reasoning, lockId);
+      const promptWithSkip = isSkip
+        ? rehydrationPrompt + SKIP_DIRECTIVE
+        : rehydrationPrompt;
+      result = await codexStart(promptWithSkip, reasoning, lockId);
       rehydrated = true;
     }
 
@@ -157,12 +161,16 @@ export async function POST(
   const isSkip = body.skip === true;
   // Canonical content for skip — overrides anything the client sent so the
   // marker prefix is stable regardless of UI version.
-  const content = isSkip
-    ? `${SKIP_MARKER} 分かりません。解説をお願いします。`
-    : rawContent;
+  const content = isSkip ? SKIP_USER_CONTENT : rawContent;
   if (!content) return badRequest("content is required");
 
   const hidden = body.hidden === true;
+  // Skip implies a visible answer to a real quiz. A direct caller sending
+  // skip+hidden=true or skip with no preceding quiz would silently
+  // increment total_count off a non-quiz exchange, so reject up front.
+  if (isSkip && hidden) {
+    return badRequest("skip cannot be hidden");
+  }
   const reasoning =
     body.reasoning === "medium" || body.reasoning === "high"
       ? (body.reasoning as "medium" | "high")
@@ -176,6 +184,7 @@ export async function POST(
     | { kind: "notfound" }
     | { kind: "not_active"; topic: ReturnType<typeof getTopic> }
     | { kind: "busy"; topic: ReturnType<typeof getTopic> }
+    | { kind: "no_quiz"; topic: ReturnType<typeof getTopic> }
     | {
         kind: "ok";
         userMessage: Message;
@@ -200,6 +209,11 @@ export async function POST(
     const prevQuiz = prevAssistant
       ? parseLatestQuiz(prevAssistant.content)
       : null;
+    // Skip must reference a real preceding quiz, just like a normal answer
+    // — otherwise we'd be crediting "didn't know" against nothing.
+    if (isSkip && prevQuiz === null) {
+      return { kind: "no_quiz", topic };
+    }
     // Skip is scored separately (force 0/1) so we don't piggyback on
     // shouldScore for it. shouldScore stays false on skip to be explicit.
     const shouldScore = !isSkip && isAnswerShaped && !hidden && prevQuiz !== null;
@@ -232,6 +246,16 @@ export async function POST(
   if (claim.kind === "busy") {
     return NextResponse.json(
       { error: "別の回答を処理中です", topic: claim.topic },
+      { status: 409 },
+    );
+  }
+  if (claim.kind === "no_quiz") {
+    return NextResponse.json(
+      {
+        error:
+          "解答対象の問題が見つかりません。題材を開き直して問題を表示してから降参してください。",
+        topic: claim.topic,
+      },
       { status: 409 },
     );
   }

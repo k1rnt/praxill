@@ -19,6 +19,7 @@ import {
 } from "@/lib/parseKnowledgeMap";
 import KnowledgeMapEditor from "@/components/KnowledgeMapEditor";
 import { WaitProgress } from "@/components/WaitProgress";
+import { SKIP_MARKER, SKIP_PREFIX_RE } from "@/lib/skip";
 import {
   ChevronRight,
   Map as MapIcon,
@@ -85,12 +86,17 @@ function groupRoundsByPhase(rounds: Round[]): PhaseGroup[] {
     }
     group.rounds.push(r);
     // Treat skipped rounds as attempted-but-incorrect so per-phase stats
-    // match the global topic counter (skip = 0/1 there too).
+    // match the global topic counter (skip = 0/1 there too) — but only when
+    // the assistant turn really happened. An interrupted skip (synthetic
+    // "__codex error__" assistant added at export time) was never scored
+    // against the topic, so counting it here would put the Phase tally out
+    // of sync with the global topic.total_count.
     const isSkip = SKIP_PREFIX_RE.test(r.user.content.trim());
-    const verdict = r.assistant
-      ? detectQuizResult(r.assistant.content)
-      : null;
-    if (isSkip && r.assistant) {
+    const isInterrupted =
+      r.assistant?.content.startsWith("__codex error__") ?? false;
+    const verdict =
+      r.assistant && !isInterrupted ? detectQuizResult(r.assistant.content) : null;
+    if (isSkip && r.assistant && !isInterrupted) {
       group.total += 1;
     } else if (verdict !== null) {
       group.total += 1;
@@ -99,11 +105,6 @@ function groupRoundsByPhase(rounds: Round[]): PhaseGroup[] {
   }
   return groups;
 }
-
-// Matches the user message body the /answer route writes when the user
-// pressed "分からない" instead of picking A-D. Keep in sync with
-// SKIP_MARKER in app/api/topics/[id]/answer/route.ts.
-const SKIP_PREFIX_RE = /^\s*\[降参\]/;
 
 function summarizeRound(round: Round): {
   qLabel: string;
@@ -124,13 +125,20 @@ function summarizeRound(round: Round): {
     trimmedUser.match(/^([A-D])(?:\s|$)/);
   const userAnswer = userMatch?.[1] ?? null;
 
-  const verdict = round.assistant
-    ? detectQuizResult(round.assistant.content)
-    : null;
+  // An interrupted assistant turn (synthetic "__codex error__" message,
+  // e.g. inserted at export time for a mid-flight exchange) hasn't really
+  // been scored — treat it the same as "no assistant yet" so per-phase
+  // tallies and badge colours stay honest.
+  const isInterrupted =
+    round.assistant?.content.startsWith("__codex error__") ?? false;
+  const verdict =
+    round.assistant && !isInterrupted
+      ? detectQuizResult(round.assistant.content)
+      : null;
   const result: "correct" | "incorrect" | "skipped" | null = isSkip
-    ? // Pending assistant: don't lock in "skipped" until the reply is in,
-      // matches the timing for correct/incorrect.
-      round.assistant
+    ? // Pending or interrupted assistant: don't lock in "skipped" until
+      // the real reply is in, matches the timing for correct/incorrect.
+      round.assistant && !isInterrupted
       ? "skipped"
       : null
     : verdict;
@@ -512,7 +520,7 @@ export default function ChatView({
     setHesitated("");
     setConfidence("");
     setShowExtras(false);
-    send("[降参]", { skip: true });
+    send(SKIP_MARKER, { skip: true });
   }
 
   function submitFreeText() {
@@ -1230,6 +1238,26 @@ function QuizOverlay({
   onSkip: () => void;
   sending: boolean;
 }) {
+  // Two-tap arming for the "分からない" button. When the user has a letter
+  // selected, a first tap arms (changes label + style) and a second tap
+  // commits — so an accidental tap with a real answer queued doesn't throw
+  // the answer away. With no letter selected the button submits directly.
+  const [skipArmed, setSkipArmed] = useState(false);
+  useEffect(() => {
+    if (!skipArmed) return;
+    const id = window.setTimeout(() => setSkipArmed(false), 4000);
+    return () => window.clearTimeout(id);
+  }, [skipArmed]);
+  function handleSkip() {
+    if (sending) return;
+    if (selected !== null && !skipArmed) {
+      setSkipArmed(true);
+      return;
+    }
+    setSkipArmed(false);
+    onSkip();
+  }
+
   // Keyboard shortcuts for the desktop quiz flow.
   //   A/B/C/D — select an option
   //   Enter   — submit (when a choice is made and not busy)
@@ -1249,13 +1277,16 @@ function QuizOverlay({
     }
     function onKey(e: KeyboardEvent) {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // Editable check first — otherwise Esc inside the 補足 textarea
+      // (commonly used to cancel an IME candidate) would close the overlay
+      // and lose what the user was typing.
+      if (isEditable(e.target)) return;
       if (e.key === "Escape") {
         if (sending) return;
         e.preventDefault();
         onClose();
         return;
       }
-      if (isEditable(e.target)) return;
       if (e.key === "Enter") {
         if (!selected || sending) return;
         // IME composition: Chrome reports key="Enter" with isComposing=true
@@ -1295,6 +1326,21 @@ function QuizOverlay({
               : "問題"}
         </span>
         <span className="quiz-overlay__title">{quiz.title}</span>
+        <button
+          type="button"
+          className={`quiz-overlay__skip${skipArmed ? " quiz-overlay__skip--armed" : ""}`}
+          onClick={handleSkip}
+          disabled={sending}
+          title={
+            selected !== null && skipArmed
+              ? `選んだ ${selected} を捨てて降参する (もう一度タップで確定)`
+              : "この問題は分からない。解説をもらう (不正解として記録されます)"
+          }
+        >
+          {selected !== null && skipArmed
+            ? `${selected} を捨てて降参する？`
+            : "分からない"}
+        </button>
       </div>
 
       <div className="quiz-overlay__body">
@@ -1381,15 +1427,6 @@ function QuizOverlay({
           ) : (
             "選択肢をタップしてください"
           )}
-        </button>
-        <button
-          type="button"
-          className="quiz-overlay__skip"
-          onClick={onSkip}
-          disabled={sending}
-          title="この問題は分からない。解説をもらう（不正解として記録されます）"
-        >
-          分からない・解説をもらう
         </button>
         <div className="quiz-overlay__shortcuts" aria-hidden>
           <kbd>A</kbd>
