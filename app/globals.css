@@ -2675,6 +2675,69 @@ kbd {
   padding: 4px 2px 0;
 }
 
+/* ----- Waiting-time review panel -------------------------------------
+   Sits between the chat scrollback and the bottom dock while codex is
+   generating. Re-anchors the user on the current Phase's target so the
+   wait turns into a "整理する" moment rather than a "blank-stare" moment.
+   Subtle so it doesn't compete with the dock CTA or the round card. */
+.waiting-panel {
+  margin: 14px 0 4px;
+  padding: 14px 16px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.waiting-panel__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.waiting-panel__tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.waiting-panel__headline {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--fg);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.waiting-panel__row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.waiting-panel__label {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.waiting-panel__value {
+  font-size: 0.88rem;
+  color: var(--fg);
+  line-height: 1.55;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+
 /* ----- Wait-screen progress bar --------------------------------------
    Elements are <span> for HTML5 phrasing-content compatibility (the dock
    variant lives inside <button><span>…</span></button>); display rules

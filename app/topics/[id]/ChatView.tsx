@@ -727,6 +727,14 @@ export default function ChatView({
         )}
       </div>
 
+      {isPending && knowledgeMap && (
+        <WaitingPanel
+          map={knowledgeMap}
+          currentPhase={topicState.current_phase}
+          totalPhases={topicState.total_phases}
+        />
+      )}
+
       {error && <div className="error">{error}</div>}
 
       <div className="quiz-dock">
@@ -874,6 +882,66 @@ export default function ChatView({
         </div>
       )}
     </>
+  );
+}
+
+/**
+ * Helper panel shown while the Trainer is generating a response. Reframes
+ * the wait from "stare at progress bar" into "re-anchor on the Phase
+ * goal". Only shown when we actually have a knowledge map to pull
+ * meaningful content from — otherwise we'd just be saying "Phase X" with
+ * no useful detail.
+ */
+function WaitingPanel({
+  map,
+  currentPhase,
+  totalPhases,
+}: {
+  map: KnowledgeMap;
+  currentPhase: number;
+  totalPhases: number;
+}) {
+  // Find the phase row whose label matches the topic's current_phase. Try
+  // both literal index and "Phase N" digit extraction so we tolerate
+  // custom labels.
+  const phaseRow =
+    map.phases.find((p) => {
+      const m = p.phase.match(/(\d+)/);
+      return m ? parseInt(m[1], 10) === currentPhase : false;
+    }) ?? map.phases[currentPhase - 1] ?? null;
+  if (!phaseRow) return null;
+
+  // Pull the two fields we care about by label. Map editor uses these
+  // labels too, so this is the canonical shape.
+  const goalField = phaseRow.fields.find((f) =>
+    f.label.includes("合格"),
+  );
+  const keywordField = phaseRow.fields.find((f) =>
+    f.label.includes("キーワード"),
+  );
+
+  return (
+    <aside className="waiting-panel" aria-live="polite">
+      <div className="waiting-panel__head">
+        <span className="waiting-panel__tag">
+          待ち時間 · Phase {currentPhase}
+          {totalPhases > 0 ? ` / ${totalPhases}` : ""}
+        </span>
+        <span className="waiting-panel__headline">{phaseRow.headline}</span>
+      </div>
+      {goalField?.value && (
+        <div className="waiting-panel__row">
+          <div className="waiting-panel__label">この Phase の合格条件</div>
+          <div className="waiting-panel__value">{goalField.value}</div>
+        </div>
+      )}
+      {keywordField?.value && (
+        <div className="waiting-panel__row">
+          <div className="waiting-panel__label">代表的なキーワード</div>
+          <div className="waiting-panel__value">{keywordField.value}</div>
+        </div>
+      )}
+    </aside>
   );
 }
 
