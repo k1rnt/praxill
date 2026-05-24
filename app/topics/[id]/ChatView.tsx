@@ -12,6 +12,7 @@ import {
   stripLatestQuiz,
   type Quiz,
 } from "@/lib/parseQuiz";
+import { parseQuizMeta, stripQuizMeta } from "@/lib/quizMeta";
 import {
   parseKnowledgeMap,
   serializeKnowledgeMap,
@@ -112,6 +113,11 @@ function summarizeRound(round: Round): {
   title: string;
   sub: string;
   result: "correct" | "incorrect" | "skipped" | null;
+  // True when `result` was filled from the hidden quiz meta key, not from
+  // the Trainer's verdict line. Callers use this to render "解説を準備中…"
+  // instead of "採点中" — the verdict is already known, only the
+  // explanation is still being generated.
+  predicted: boolean;
 } {
   const prevQuiz = round.prevAssistant
     ? parseLatestQuiz(round.prevAssistant.content)
@@ -135,13 +141,35 @@ function summarizeRound(round: Round): {
     round.assistant && !isInterrupted
       ? detectQuizResult(round.assistant.content)
       : null;
-  const result: "correct" | "incorrect" | "skipped" | null = isSkip
-    ? // Pending or interrupted assistant: don't lock in "skipped" until
-      // the real reply is in, matches the timing for correct/incorrect.
-      round.assistant && !isInterrupted
-      ? "skipped"
-      : null
-    : verdict;
+
+  // Immediate grading via hidden quiz-meta: if the previous assistant
+  // message included `<!-- praxill-meta correct: X -->` and the user has
+  // a clean A-D answer, we can show the verdict the instant the user
+  // hits submit, without waiting 20-50s for Codex to come back.
+  const meta = round.prevAssistant
+    ? parseQuizMeta(round.prevAssistant.content)
+    : null;
+  const predictedVerdict: "correct" | "incorrect" | null =
+    !isSkip && userAnswer && meta
+      ? meta.correct === userAnswer
+        ? "correct"
+        : "incorrect"
+      : null;
+
+  let result: "correct" | "incorrect" | "skipped" | null;
+  let predicted = false;
+  if (isSkip) {
+    // Pending or interrupted assistant: don't lock in "skipped" until
+    // the real reply is in, matches the timing for correct/incorrect.
+    result = round.assistant && !isInterrupted ? "skipped" : null;
+  } else if (verdict !== null) {
+    result = verdict;
+  } else if (predictedVerdict !== null) {
+    result = predictedVerdict;
+    predicted = true;
+  } else {
+    result = null;
+  }
 
   if (isSkip && prevQuiz) {
     const isSummary = prevQuiz.kind === "summary";
@@ -155,6 +183,7 @@ function summarizeRound(round: Round): {
       title: prevQuiz.title || "（タイトルなし）",
       sub: "分からなかった",
       result,
+      predicted,
     };
   }
 
@@ -170,6 +199,7 @@ function summarizeRound(round: Round): {
       title: prevQuiz.title || "（タイトルなし）",
       sub: `あなたの回答: ${userAnswer}`,
       result,
+      predicted,
     };
   }
 
@@ -180,6 +210,7 @@ function summarizeRound(round: Round): {
     title: oneLine.length > 60 ? oneLine.slice(0, 60) + "…" : oneLine,
     sub: "ノート",
     result,
+    predicted,
   };
 }
 
@@ -857,10 +888,13 @@ function RoundCard({
   isOpen: boolean;
   onToggle: () => void;
 }) {
-  const { qLabel, qLabelKind, title, sub, result } = summarizeRound(round);
+  const { qLabel, qLabelKind, title, sub, result, predicted } =
+    summarizeRound(round);
 
-  // Pending = user submitted but Trainer hasn't replied yet
-  const pending = round.assistant === null;
+  // Pending-assistant = Trainer hasn't replied yet. Distinct from "no
+  // verdict" because predicted-from-meta rounds have a verdict already
+  // but still need the explanation to arrive.
+  const pendingAssistant = round.assistant === null;
 
   // For the expanded view we want to show the original question (scenario +
   // A/B/C/D options) so the user can re-read what they were answering.
@@ -902,18 +936,20 @@ function RoundCard({
           <span className="round__summary-title">{title}</span>
           <span className="round__summary-sub">{sub}</span>
         </span>
-        {pending ? (
-          <span className="round__chip round__chip--pending">
-            <span className="spinner" />
-            採点中
-          </span>
-        ) : result ? (
+        {result ? (
+          // Prefer showing the verdict — predicted from quiz-meta or
+          // confirmed by Codex, either way the user wants to see it now.
           <span className={`round__chip round__chip--${result}`}>
             {result === "correct"
               ? "✓ 正解"
               : result === "skipped"
                 ? "分からなかった"
                 : "✗ 不正解"}
+          </span>
+        ) : pendingAssistant ? (
+          <span className="round__chip round__chip--pending">
+            <span className="spinner" />
+            採点中
           </span>
         ) : null}
         <span className="round__chev" aria-hidden>
@@ -994,14 +1030,17 @@ function RoundCard({
             // The single source of truth for "we're waiting" is the dock CTA
             // at the bottom of the screen — it's always visible. Inside the
             // round body we just show a soft indicator so the user knows
-            // the section is still being filled in.
+            // the section is still being filled in. When we already have a
+            // predicted verdict from the hidden quiz-meta, we know the
+            // verdict — only the explanation is still in flight, so adjust
+            // the wording.
             <div className="round__pending">
               <span className="thinking-dots">
                 <span />
                 <span />
                 <span />
               </span>
-              <span>採点を待っています</span>
+              <span>{predicted ? "解説を準備中…" : "採点を待っています"}</span>
             </div>
           )}
         </div>

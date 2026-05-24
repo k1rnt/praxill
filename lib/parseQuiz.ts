@@ -154,9 +154,17 @@ export function detectQuizResult(
  * message so the same text isn't shown twice (once in markdown, once as
  * buttons). Used both for the chat bubble (hide active Q) and the knowledge
  * map view (strip Q1 from the first assistant response).
+ *
+ * Also strips any <!-- praxill-meta ... --> comment block — even though
+ * ReactMarkdown's default render drops HTML, we don't want to rely on
+ * that, and copy-paste would otherwise reveal the marker.
  */
 export function stripLatestQuiz(text: string): string {
   if (!text) return text;
+
+  // Strip the meta block(s) up front so any index math below isn't thrown
+  // off when the quiz happens to be at the end of the message.
+  text = text.replace(/\s*<!--\s*praxill-meta\b[\s\S]*?-->\s*/gi, "\n");
 
   const headers: { idx: number; end: number }[] = [];
   HEADER_RE.lastIndex = 0;
