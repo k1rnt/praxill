@@ -36,15 +36,36 @@ function buildRehydrationFromDb(topicId: string): string | null {
   });
 }
 
+// Marker prefix on the user message body when the user pressed the "分から
+// ない" button instead of picking A-D. Lets the chat view render a distinct
+// "分からなかった" badge and lets the server tell scoring/codex to treat
+// this as an explicit give-up.
+export const SKIP_MARKER = "[降参]";
+
+// Appended to the user's message when sent to codex on skip. Tells the
+// Trainer the user gave up rather than guessed wrong, so the response
+// should jump straight to a careful explanation.
+const SKIP_DIRECTIVE =
+  "\n\n（システム注: ユーザーは選択肢のどれが正解か分からず「降参」を選択しました。" +
+  "推測で外したのではなく、設問・選択肢の意味自体が掴めていない状態です。" +
+  "正解の選択肢を明示し、その理由と他の選択肢が誤りである理由を、前提知識から順を追って丁寧に解説してください。" +
+  "降参の扱いとして今回のスコアは 0/1 で記録されます。" +
+  "解説のあと、必要なら同じ Phase の類題を続けて出してください。）";
+
 async function runCodexInBackground(
   topicId: string,
   threadId: string | null,
   content: string,
   lockId: string,
   shouldScore: boolean,
+  isSkip: boolean,
   reasoning?: string,
 ) {
   const localInstanceId = getLocalInstanceId();
+  // What codex sees for this turn — the DB user-message stays as the user
+  // wrote it so the transcript is faithful; only the model gets the
+  // skip directive appended.
+  const codexPrompt = isSkip ? content + SKIP_DIRECTIVE : content;
 
   try {
     // Three execution paths:
@@ -57,7 +78,7 @@ async function runCodexInBackground(
     let rehydrated = false;
     if (threadId !== null) {
       try {
-        result = await codexResume(threadId, content, reasoning, lockId);
+        result = await codexResume(threadId, codexPrompt, reasoning, lockId);
       } catch (resumeErr) {
         console.warn(
           `[answer] codexResume failed for topic ${topicId}; rehydrating new thread`,
@@ -91,7 +112,13 @@ async function runCodexInBackground(
         // This installation now owns the new thread.
         patch.thread_owner_instance_id = localInstanceId;
       }
-      if (shouldScore) {
+      if (isSkip) {
+        // Skip is always 0/1, regardless of what the Trainer's reply
+        // looks like — the user explicitly said they don't know, so the
+        // accuracy stat reflects that honestly.
+        patch.correct_count = topic.correct_count;
+        patch.total_count = topic.total_count + 1;
+      } else if (shouldScore) {
         const incrementing =
           progress.correctIncrement !== undefined ||
           progress.totalIncrement !== undefined;
@@ -125,8 +152,14 @@ export async function POST(
   const body = await readJsonObject(req);
   if (!body) return badRequest("リクエスト形式が不正です");
 
-  const content =
+  const rawContent =
     typeof body.content === "string" ? body.content.trim() : "";
+  const isSkip = body.skip === true;
+  // Canonical content for skip — overrides anything the client sent so the
+  // marker prefix is stable regardless of UI version.
+  const content = isSkip
+    ? `${SKIP_MARKER} 分かりません。解説をお願いします。`
+    : rawContent;
   if (!content) return badRequest("content is required");
 
   const hidden = body.hidden === true;
@@ -167,7 +200,9 @@ export async function POST(
     const prevQuiz = prevAssistant
       ? parseLatestQuiz(prevAssistant.content)
       : null;
-    const shouldScore = isAnswerShaped && !hidden && prevQuiz !== null;
+    // Skip is scored separately (force 0/1) so we don't piggyback on
+    // shouldScore for it. shouldScore stays false on skip to be explicit.
+    const shouldScore = !isSkip && isAnswerShaped && !hidden && prevQuiz !== null;
 
     const userMessage = addMessage(id, "user", content, hidden);
     updateTopic(id, {
@@ -207,6 +242,7 @@ export async function POST(
     content,
     lockId,
     claim.shouldScore,
+    isSkip,
     reasoning,
   ).catch((err) => {
     console.error("[answer] background codex unhandled:", err);

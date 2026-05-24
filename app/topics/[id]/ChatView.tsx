@@ -84,23 +84,33 @@ function groupRoundsByPhase(rounds: Round[]): PhaseGroup[] {
       groups.push(group);
     }
     group.rounds.push(r);
-    const result = r.assistant
+    // Treat skipped rounds as attempted-but-incorrect so per-phase stats
+    // match the global topic counter (skip = 0/1 there too).
+    const isSkip = SKIP_PREFIX_RE.test(r.user.content.trim());
+    const verdict = r.assistant
       ? detectQuizResult(r.assistant.content)
       : null;
-    if (result !== null) {
+    if (isSkip && r.assistant) {
       group.total += 1;
-      if (result === "correct") group.correct += 1;
+    } else if (verdict !== null) {
+      group.total += 1;
+      if (verdict === "correct") group.correct += 1;
     }
   }
   return groups;
 }
+
+// Matches the user message body the /answer route writes when the user
+// pressed "分からない" instead of picking A-D. Keep in sync with
+// SKIP_MARKER in app/api/topics/[id]/answer/route.ts.
+const SKIP_PREFIX_RE = /^\s*\[降参\]/;
 
 function summarizeRound(round: Round): {
   qLabel: string;
   qLabelKind: "regular" | "summary" | "freeform";
   title: string;
   sub: string;
-  result: "correct" | "incorrect" | null;
+  result: "correct" | "incorrect" | "skipped" | null;
 } {
   const prevQuiz = round.prevAssistant
     ? parseLatestQuiz(round.prevAssistant.content)
@@ -108,12 +118,37 @@ function summarizeRound(round: Round): {
   // Accept "回答: A" (the structured format) AND a bare letter (legacy
   // free-text submissions when the quiz wasn't recognised as tappable yet).
   const trimmedUser = round.user.content.trim();
+  const isSkip = SKIP_PREFIX_RE.test(trimmedUser);
   const userMatch =
     trimmedUser.match(/(?:^|\n)\s*回答[:：]\s*([A-D])/) ??
     trimmedUser.match(/^([A-D])(?:\s|$)/);
   const userAnswer = userMatch?.[1] ?? null;
 
-  const result = round.assistant ? detectQuizResult(round.assistant.content) : null;
+  const verdict = round.assistant
+    ? detectQuizResult(round.assistant.content)
+    : null;
+  const result: "correct" | "incorrect" | "skipped" | null = isSkip
+    ? // Pending assistant: don't lock in "skipped" until the reply is in,
+      // matches the timing for correct/incorrect.
+      round.assistant
+      ? "skipped"
+      : null
+    : verdict;
+
+  if (isSkip && prevQuiz) {
+    const isSummary = prevQuiz.kind === "summary";
+    return {
+      qLabel: isSummary
+        ? "まとめ"
+        : prevQuiz.number
+          ? `Q${prevQuiz.number}`
+          : "Q?",
+      qLabelKind: isSummary ? "summary" : "regular",
+      title: prevQuiz.title || "（タイトルなし）",
+      sub: "分からなかった",
+      result,
+    };
+  }
 
   if (prevQuiz && userAnswer) {
     const isSummary = prevQuiz.kind === "summary";
@@ -415,8 +450,15 @@ export default function ChatView({
     };
   }, [topicState.id, isPending]);
 
-  async function send(content: string, opts: { hidden?: boolean } = {}) {
-    if (sending || !content.trim()) return;
+  async function send(
+    content: string,
+    opts: { hidden?: boolean; skip?: boolean } = {},
+  ) {
+    if (sending) return;
+    const skip = opts.skip === true;
+    // Skip is sent even with empty content — the server fills in the
+    // canonical marker. For non-skip, an empty body is a no-op.
+    if (!skip && !content.trim()) return;
     setSubmitting(true);
     setError(null);
 
@@ -433,7 +475,7 @@ export default function ChatView({
       const res = await fetch(`/api/topics/${topicState.id}/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, hidden, reasoning }),
+        body: JSON.stringify({ content, hidden, reasoning, skip }),
       });
       const data = (await res.json()) as {
         userMessage?: Message;
@@ -459,6 +501,18 @@ export default function ChatView({
     const content = formatAnswer(selected, reason, hesitated, confidence);
     setQuizMode(false); // exit overlay first so the chat shows the answer + loading
     send(content);
+  }
+
+  function submitSkip() {
+    // Server overrides content to the canonical marker form, but we send a
+    // placeholder so the request shape stays the same as any other answer.
+    setQuizMode(false);
+    setSelected(null);
+    setReason("");
+    setHesitated("");
+    setConfidence("");
+    setShowExtras(false);
+    send("[降参]", { skip: true });
   }
 
   function submitFreeText() {
@@ -718,6 +772,7 @@ export default function ChatView({
           setShowExtras={setShowExtras}
           onClose={() => setQuizMode(false)}
           onSubmit={submitQuiz}
+          onSkip={submitSkip}
           sending={sending}
         />
       )}
@@ -805,6 +860,7 @@ function RoundCard({
     ? parseLatestQuiz(round.prevAssistant.content)
     : null;
   const trimmedUserContent = round.user.content.trim();
+  const isSkipRound = SKIP_PREFIX_RE.test(trimmedUserContent);
   const userChoiceMatch =
     trimmedUserContent.match(/(?:^|\n)\s*回答[:：]\s*([A-D])/) ??
     trimmedUserContent.match(/^([A-D])(?:\s|$)/);
@@ -845,7 +901,11 @@ function RoundCard({
           </span>
         ) : result ? (
           <span className={`round__chip round__chip--${result}`}>
-            {result === "correct" ? "✓ 正解" : "✗ 不正解"}
+            {result === "correct"
+              ? "✓ 正解"
+              : result === "skipped"
+                ? "分からなかった"
+                : "✗ 不正解"}
           </span>
         ) : null}
         <span className="round__chev" aria-hidden>
@@ -883,21 +943,33 @@ function RoundCard({
             </div>
           )}
 
-          <div>
-            <div className="round__section-label">あなたの回答</div>
-            <div className="round__user-content markdown">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {round.user.content}
-              </ReactMarkdown>
+          {!isSkipRound && (
+            <div>
+              <div className="round__section-label">あなたの回答</div>
+              <div className="round__user-content markdown">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {round.user.content}
+                </ReactMarkdown>
+              </div>
             </div>
-          </div>
+          )}
 
           {result && (
             <div className={`big-result big-result--${result}`}>
               <span className="big-result__mark">
-                {result === "correct" ? "✓" : "✗"}
+                {result === "correct"
+                  ? "✓"
+                  : result === "skipped"
+                    ? "？"
+                    : "✗"}
               </span>
-              <span>{result === "correct" ? "正解" : "不正解"}</span>
+              <span>
+                {result === "correct"
+                  ? "正解"
+                  : result === "skipped"
+                    ? "分からなかった (0/1)"
+                    : "不正解"}
+              </span>
             </div>
           )}
 
@@ -1139,6 +1211,7 @@ function QuizOverlay({
   setShowExtras,
   onClose,
   onSubmit,
+  onSkip,
   sending,
 }: {
   quiz: Quiz;
@@ -1154,6 +1227,7 @@ function QuizOverlay({
   setShowExtras: (b: boolean) => void;
   onClose: () => void;
   onSubmit: () => void;
+  onSkip: () => void;
   sending: boolean;
 }) {
   // Keyboard shortcuts for the desktop quiz flow.
@@ -1307,6 +1381,15 @@ function QuizOverlay({
           ) : (
             "選択肢をタップしてください"
           )}
+        </button>
+        <button
+          type="button"
+          className="quiz-overlay__skip"
+          onClick={onSkip}
+          disabled={sending}
+          title="この問題は分からない。解説をもらう（不正解として記録されます）"
+        >
+          分からない・解説をもらう
         </button>
         <div className="quiz-overlay__shortcuts" aria-hidden>
           <kbd>A</kbd>
