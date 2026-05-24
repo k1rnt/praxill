@@ -128,6 +128,19 @@ kbd {
   flex-direction: column;
 }
 
+.app-shell__content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Sidebar is desktop-only — hidden by default, revealed by the ≥1024px
+   media query at the bottom of this file. */
+.sidebar {
+  display: none;
+}
+
 .app-header {
   position: sticky;
   top: 0;
@@ -2417,6 +2430,196 @@ kbd {
 @media (min-width: 720px) {
   .options {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Keyboard-shortcut hint inside the quiz overlay — hidden on mobile
+   (touch users don't have a physical keyboard), revealed on desktop. */
+.quiz-overlay__shortcuts {
+  display: none;
+}
+.quiz-overlay__shortcuts kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 0 2px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--bg-elev-2);
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+/* ===== Desktop layout (≥1024px) ======================================
+   Show the persistent left sidebar; hide the top app-header which
+   duplicates its function. Bottom dock (.quiz-dock) is also pinned to
+   the content column rather than the viewport so it doesn't slide
+   under the sidebar. */
+@media (min-width: 1024px) {
+  .app-shell {
+    flex-direction: row;
+    align-items: stretch;
+    min-height: 100vh;
+  }
+  .app-shell__content {
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  .app-header {
+    display: none;
+  }
+
+  .sidebar {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 240px;
+    width: 240px;
+    height: 100vh;
+    position: sticky;
+    top: 0;
+    background: var(--bg-elev);
+    border-right: 1px solid var(--border);
+    padding: 14px 10px 14px;
+  }
+  .sidebar__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 6px 12px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 10px;
+  }
+  .sidebar__brand {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--fg);
+    letter-spacing: 0.01em;
+  }
+  .sidebar__new {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  .sidebar__new:hover {
+    background: var(--accent-strong);
+  }
+  .sidebar__topics {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-right: 2px;
+  }
+  .sidebar__topic {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    color: var(--fg);
+    font-size: 0.88rem;
+    line-height: 1.35;
+    transition: background-color 0.1s ease;
+  }
+  .sidebar__topic:hover {
+    background: var(--bg-elev-2);
+  }
+  .sidebar__topic--active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .sidebar__topic-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sidebar__topic-tag {
+    flex: 0 0 auto;
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: var(--bg-elev-2);
+    color: var(--fg-muted);
+    font-weight: 600;
+  }
+  .sidebar__empty {
+    padding: 12px 10px;
+    color: var(--fg-muted);
+    font-size: 0.82rem;
+  }
+  .sidebar__foot {
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .sidebar__nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    color: var(--fg-muted);
+    font-size: 0.85rem;
+  }
+  .sidebar__nav:hover {
+    background: var(--bg-elev-2);
+    color: var(--fg);
+  }
+
+  /* Content can use more horizontal space now */
+  :root {
+    --max-width: 880px;
+  }
+  .app-main {
+    padding-left: 28px;
+    padding-right: 28px;
+  }
+
+  /* The bottom dock was viewport-fixed; on desktop pin it to the content
+     column so it doesn't slide under the sidebar. */
+  .quiz-dock {
+    left: 240px;
+  }
+
+  /* Home dashboard: lay topic cards out as a responsive 2-column grid so
+     wider screens don't have a single thin column of cards. */
+  .topics {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+  }
+
+  /* Reveal the quiz-overlay keyboard hint. */
+  .quiz-overlay__shortcuts {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin-top: 12px;
+    color: var(--fg-muted);
+    font-size: 0.78rem;
+  }
+}
+
+@media (min-width: 1440px) {
+  :root {
+    --max-width: 1040px;
   }
 }
 

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { Search, Settings as SettingsIcon } from "lucide-react";
+import { Sidebar } from "@/components/Sidebar";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -72,32 +73,35 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
         <script dangerouslySetInnerHTML={{ __html: WALLET_SHIM }} />
         <div className="app-shell">
-          <header className="app-header">
-            <div className="app-header__inner">
-              <div className="app-header__title">
-                <Link href="/">🪶 Praxill</Link>
+          <Sidebar />
+          <div className="app-shell__content">
+            <header className="app-header">
+              <div className="app-header__inner">
+                <div className="app-header__title">
+                  <Link href="/">Praxill</Link>
+                </div>
+                <div className="app-header__spacer" />
+                <Link
+                  className="btn btn--ghost btn--icon"
+                  href="/search"
+                  aria-label="検索"
+                >
+                  <Search size={18} strokeWidth={2} />
+                </Link>
+                <Link
+                  className="btn btn--ghost btn--icon"
+                  href="/settings"
+                  aria-label="設定"
+                >
+                  <SettingsIcon size={18} strokeWidth={2} />
+                </Link>
+                <Link className="btn btn--primary btn--sm" href="/topics/new">
+                  + 新規
+                </Link>
               </div>
-              <div className="app-header__spacer" />
-              <Link
-                className="btn btn--ghost btn--icon"
-                href="/search"
-                aria-label="検索"
-              >
-                <Search size={18} strokeWidth={2} />
-              </Link>
-              <Link
-                className="btn btn--ghost btn--icon"
-                href="/settings"
-                aria-label="設定"
-              >
-                <SettingsIcon size={18} strokeWidth={2} />
-              </Link>
-              <Link className="btn btn--primary btn--sm" href="/topics/new">
-                + 新規
-              </Link>
-            </div>
-          </header>
-          {children}
+            </header>
+            {children}
+          </div>
         </div>
       </body>
     </html>

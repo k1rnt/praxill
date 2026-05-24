@@ -952,6 +952,27 @@ function MapOverlay({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  // Esc closes the overlay (unless editing — there we want Esc to back
+  // out of the edit form first, matching the back button's behavior).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (saving) return;
+      if (
+        e.target instanceof HTMLElement &&
+        (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")
+      ) {
+        return;
+      }
+      e.preventDefault();
+      if (editing) cancelEdit();
+      else onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, saving, onClose]);
+
   function enterEdit() {
     setDraft(map);
     setSaveError(null);
@@ -1135,6 +1156,52 @@ function QuizOverlay({
   onSubmit: () => void;
   sending: boolean;
 }) {
+  // Keyboard shortcuts for the desktop quiz flow.
+  //   A/B/C/D — select an option
+  //   Enter   — submit (when a choice is made and not busy)
+  //   Esc     — close the overlay
+  // We skip while focus is in a textarea/input so extras editing isn't
+  // hijacked. The IME composition guard avoids stealing Enter while the
+  // user is still confirming a Japanese candidate.
+  useEffect(() => {
+    function isEditable(target: EventTarget | null): boolean {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      return (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        target.isContentEditable === true
+      );
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Escape") {
+        if (sending) return;
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (isEditable(e.target)) return;
+      if (e.key === "Enter") {
+        if (!selected || sending) return;
+        // IME composition: Chrome reports key="Enter" with isComposing=true
+        // when a candidate window is open; ignore those.
+        if ((e as KeyboardEvent & { isComposing?: boolean }).isComposing) return;
+        e.preventDefault();
+        onSubmit();
+        return;
+      }
+      const k = e.key.toUpperCase();
+      if (k === "A" || k === "B" || k === "C" || k === "D") {
+        if (sending) return;
+        e.preventDefault();
+        onSelect(k as Letter);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, onSelect, onSubmit, selected, sending]);
+
   return (
     <div className="quiz-overlay" role="dialog" aria-modal="true">
       <div className="quiz-overlay__header">
@@ -1241,6 +1308,13 @@ function QuizOverlay({
             "選択肢をタップしてください"
           )}
         </button>
+        <div className="quiz-overlay__shortcuts" aria-hidden>
+          <kbd>A</kbd>
+          <kbd>B</kbd>
+          <kbd>C</kbd>
+          <kbd>D</kbd>
+          で選択・<kbd>Enter</kbd> で送信・<kbd>Esc</kbd> で戻る
+        </div>
       </div>
     </div>
   );
