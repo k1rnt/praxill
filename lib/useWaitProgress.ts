@@ -14,23 +14,37 @@ import { useEffect, useRef, useState } from "react";
  *
  * `expectedMs` lets the caller widen (high-reasoning) or narrow (medium) the
  * curve.  Default 25_000 fits the systemd default of CODEX_REASONING=high.
+ *
+ * `startedAt` lets the caller supply the start timestamp externally so the
+ * bar survives WaitProgress unmount/remount. This matters for the Phase 2
+ * split flow where the dock swaps between an "answering" branch and a
+ * "next-quiz pending" branch mid-wait — without an external timestamp the
+ * second mount would restart from 0% and feel like a second wait.
  */
 export function useWaitProgress(
   active: boolean,
   expectedMs = 25_000,
+  startedAt?: number | null,
 ): { percent: number; elapsedSec: number } {
-  const startRef = useRef<number | null>(null);
+  const internalStartRef = useRef<number | null>(null);
   const [percent, setPercent] = useState(0);
   const [elapsedSec, setElapsedSec] = useState(0);
 
   useEffect(() => {
+    // Resolve the start timestamp: caller-supplied wins, otherwise we own
+    // it (set on first active tick, cleared after the snap-to-100% beat).
+    const externalStart =
+      typeof startedAt === "number" ? startedAt : undefined;
+
     if (!active) {
       // Snap to 100% on transition; the parent unmounts the bar shortly
       // after, but we want the eye to register completion first.
-      if (startRef.current !== null) {
+      const hadStart =
+        externalStart !== undefined || internalStartRef.current !== null;
+      if (hadStart) {
         setPercent(100);
         const t = window.setTimeout(() => {
-          startRef.current = null;
+          internalStartRef.current = null;
           setPercent(0);
           setElapsedSec(0);
         }, 350);
@@ -38,23 +52,21 @@ export function useWaitProgress(
       }
       return;
     }
-    if (startRef.current === null) {
-      startRef.current = Date.now();
-      setPercent(2);
-      setElapsedSec(0);
+    if (externalStart === undefined && internalStartRef.current === null) {
+      internalStartRef.current = Date.now();
     }
     const tick = () => {
-      const start = startRef.current;
-      if (start === null) return;
+      const start = externalStart ?? internalStartRef.current;
+      if (start === null || start === undefined) return;
       const t = Date.now() - start;
       const raw = 1 - Math.exp(-t / expectedMs);
-      setPercent(Math.min(95, Math.round(raw * 100)));
+      setPercent(Math.max(2, Math.min(95, Math.round(raw * 100))));
       setElapsedSec(Math.floor(t / 1000));
     };
     tick();
     const id = window.setInterval(tick, 250);
     return () => window.clearInterval(id);
-  }, [active, expectedMs]);
+  }, [active, expectedMs, startedAt]);
 
   return { percent, elapsedSec };
 }

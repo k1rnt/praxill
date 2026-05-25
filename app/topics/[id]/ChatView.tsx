@@ -306,6 +306,23 @@ export default function ChatView({
   const isPending = topicState.pending_user_message_id !== null;
   const sending = submitting || isPending;
 
+  // Persistent wait-start timestamp shared across the dock's "answering"
+  // and "next-quiz pending" branches so the WaitProgress bar doesn't reset
+  // to 0% when the dock switches between them mid-wait (Phase 2 split
+  // codex call boundary). Set on the leading edge of sending → true,
+  // cleared a beat after it goes false so the snap-to-100% animation
+  // still gets to play.
+  const [waitStartedAt, setWaitStartedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (sending) {
+      setWaitStartedAt((cur) => cur ?? Date.now());
+      return;
+    }
+    if (waitStartedAt === null) return;
+    const t = window.setTimeout(() => setWaitStartedAt(null), 400);
+    return () => window.clearTimeout(t);
+  }, [sending, waitStartedAt]);
+
   const visibleMessages = useMemo(
     () => messages.filter((_, idx) => !(idx === 0 && messages[0]?.role === "user")),
     [messages],
@@ -831,6 +848,8 @@ export default function ChatView({
                     active={sending}
                     label="考えています…"
                     variant="dock"
+                    startedAt={waitStartedAt}
+                    expectedMs={40_000}
                   />
                 ) : (
                   <span className="start-quiz__sub">
@@ -862,6 +881,8 @@ export default function ChatView({
                   active={sending}
                   label="考えています…"
                   variant="dock"
+                  startedAt={waitStartedAt}
+                  expectedMs={40_000}
                 />
               </span>
             </div>
