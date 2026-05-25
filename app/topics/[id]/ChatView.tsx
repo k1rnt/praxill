@@ -229,11 +229,15 @@ function formatAnswer(
   reason: string,
   hesitated: string,
   confidence: string,
+  unknownTerms: string,
+  question: string,
 ): string {
   const lines = [`回答: ${choice}`];
   if (reason.trim()) lines.push(`理由: ${reason.trim()}`);
   if (hesitated.trim()) lines.push(`迷った選択肢: ${hesitated.trim()}`);
   if (confidence.trim()) lines.push(`自信度: ${confidence.trim()}`);
+  if (unknownTerms.trim()) lines.push(`分からなかった単語: ${unknownTerms.trim()}`);
+  if (question.trim()) lines.push(`質問: ${question.trim()}`);
   return lines.join("\n");
 }
 
@@ -254,6 +258,8 @@ export default function ChatView({
   const [reason, setReason] = useState("");
   const [hesitated, setHesitated] = useState("");
   const [confidence, setConfidence] = useState("");
+  const [unknownTerms, setUnknownTerms] = useState("");
+  const [question, setQuestion] = useState("");
   const [showExtras, setShowExtras] = useState(false);
   const [freeText, setFreeText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -537,7 +543,14 @@ export default function ChatView({
 
   function submitQuiz() {
     if (!selected) return;
-    const content = formatAnswer(selected, reason, hesitated, confidence);
+    const content = formatAnswer(
+      selected,
+      reason,
+      hesitated,
+      confidence,
+      unknownTerms,
+      question,
+    );
     setQuizMode(false); // exit overlay first so the chat shows the answer + loading
     send(content);
   }
@@ -550,6 +563,8 @@ export default function ChatView({
     setReason("");
     setHesitated("");
     setConfidence("");
+    setUnknownTerms("");
+    setQuestion("");
     setShowExtras(false);
     send(SKIP_MARKER, { skip: true });
   }
@@ -816,6 +831,10 @@ export default function ChatView({
           setHesitated={setHesitated}
           confidence={confidence}
           setConfidence={setConfidence}
+          unknownTerms={unknownTerms}
+          setUnknownTerms={setUnknownTerms}
+          question={question}
+          setQuestion={setQuestion}
           showExtras={showExtras}
           setShowExtras={setShowExtras}
           onClose={() => setQuizMode(false)}
@@ -1352,6 +1371,10 @@ function QuizOverlay({
   setHesitated,
   confidence,
   setConfidence,
+  unknownTerms,
+  setUnknownTerms,
+  question,
+  setQuestion,
   showExtras,
   setShowExtras,
   onClose,
@@ -1368,6 +1391,10 @@ function QuizOverlay({
   setHesitated: (s: string) => void;
   confidence: string;
   setConfidence: (s: string) => void;
+  unknownTerms: string;
+  setUnknownTerms: (s: string) => void;
+  question: string;
+  setQuestion: (s: string) => void;
   showExtras: boolean;
   setShowExtras: (b: boolean) => void;
   onClose: () => void;
@@ -1542,6 +1569,25 @@ function QuizOverlay({
                 value={confidence}
                 onChange={(e) => setConfidence(e.target.value)}
                 placeholder="例: 70%"
+              />
+            </div>
+            <div className="quiz-extras__row">
+              <label className="quiz-extras__label">分からなかった単語</label>
+              <input
+                type="text"
+                className="quiz-extras__input"
+                value={unknownTerms}
+                onChange={(e) => setUnknownTerms(e.target.value)}
+                placeholder="問題文や選択肢の中で意味が分からなかった単語（例: NTLM, リバインド）"
+              />
+            </div>
+            <div className="quiz-extras__row">
+              <label className="quiz-extras__label">質問</label>
+              <textarea
+                className="quiz-extras__textarea"
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                placeholder="この問題に関連して聞きたいこと（例: なぜ X ではなく Y が標準なのか）"
               />
             </div>
           </div>
