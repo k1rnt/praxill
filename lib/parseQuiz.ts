@@ -1,3 +1,5 @@
+import { stripQuizMeta } from "./quizMeta";
+
 export type Quiz = {
   number: string; // Q-number if the header had one ("Q5"), otherwise empty
   title: string;
@@ -163,8 +165,9 @@ export function stripLatestQuiz(text: string): string {
   if (!text) return text;
 
   // Strip the meta block(s) up front so any index math below isn't thrown
-  // off when the quiz happens to be at the end of the message.
-  text = text.replace(/\s*<!--\s*praxill-meta\b[\s\S]*?-->\s*/gi, "\n");
+  // off when the quiz happens to be at the end of the message. Reuse the
+  // canonical regex via stripQuizMeta so the two stay in sync.
+  text = stripQuizMeta(text);
 
   const headers: { idx: number; end: number }[] = [];
   HEADER_RE.lastIndex = 0;

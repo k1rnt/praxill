@@ -36,7 +36,12 @@ export type QuizTip = {
   body: string;
 };
 
-const META_BLOCK_RE = /<!--\s*praxill-meta\b([\s\S]*?)-->/i;
+// Global flag — we want every block in the message, not just the first,
+// because some Trainer responses end up echoing an old meta block before
+// emitting the new quiz's meta. parseQuizMeta picks the LAST occurrence
+// so it always corresponds to the message's freshest quiz (same one
+// parseLatestQuiz returns).
+const META_BLOCK_RE = /<!--\s*praxill-meta\b([\s\S]*?)-->/gi;
 
 function parseTip(body: string): QuizTip | null {
   // Tolerate full-width pipe (｜) and colon. The tip line is "tip: TERM |
@@ -54,15 +59,19 @@ function parseTip(body: string): QuizTip | null {
 
 export function parseQuizMeta(text: string): QuizMeta | null {
   if (!text) return null;
-  const block = text.match(META_BLOCK_RE);
-  if (!block) return null;
-  const body = block[1];
+  // Iterate all blocks and keep the last one. matchAll keeps the regex
+  // safe to re-use because each iterator gets its own state.
+  let lastBody: string | null = null;
+  for (const m of text.matchAll(META_BLOCK_RE)) {
+    lastBody = m[1];
+  }
+  if (lastBody === null) return null;
   // Tolerate full-width colon ("correct：B") and surrounding whitespace.
-  const m = body.match(/correct\s*[:：]\s*([A-Da-d])\b/);
-  if (!m) return null;
+  const c = lastBody.match(/correct\s*[:：]\s*([A-Da-d])\b/);
+  if (!c) return null;
   return {
-    correct: m[1].toUpperCase() as "A" | "B" | "C" | "D",
-    tip: parseTip(body),
+    correct: c[1].toUpperCase() as "A" | "B" | "C" | "D",
+    tip: parseTip(lastBody),
   };
 }
 

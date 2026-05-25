@@ -3,8 +3,15 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
-import { detectQuizResult } from "./parseQuiz";
+import { detectQuizResult, parseLatestQuiz } from "./parseQuiz";
 import { SKIP_PREFIX_RE } from "./skip";
+
+// Mirrors the regex used by /api/topics/[id]/answer to decide if a user
+// message is a real quiz answer (rather than a free-form question). Kept
+// in this module so the boot-time recompute uses the same gate the live
+// scoring path uses — otherwise a freeform "正解です" mention from the
+// Trainer would falsely bump correct_count on the next restart.
+const ANSWER_SHAPE_RE = /^\s*回答[:：]\s*[A-D]\s*$/m;
 
 // Store the SQLite database OUTSIDE the project directory so its WAL/SHM
 // sidecar files do not trip the Next.js dev file watcher (which would force
@@ -229,11 +236,23 @@ function recomputeTopicScores(db: Database.Database) {
         // Interrupted exchanges (server-restart synthetic) weren't really
         // graded by codex — ignore them so the count stays honest.
         if (assistant.content.startsWith("__codex error__")) continue;
-        const isSkip = SKIP_PREFIX_RE.test(m.content.trim());
+        const userContent = m.content.trim();
+        const isSkip = SKIP_PREFIX_RE.test(userContent);
         if (isSkip) {
           total += 1;
           continue;
         }
+        // Mirror /api/topics/[id]/answer's gate: only count when the user
+        // turn is shaped like a quiz answer AND the previous assistant
+        // turn actually contained a 4-choice quiz. Otherwise a freeform
+        // exchange whose assistant reply happens to include "正解です"
+        // would falsely tick the counter on every restart.
+        if (!ANSWER_SHAPE_RE.test(userContent)) continue;
+        const prev = i > 0 ? msgs[i - 1] : null;
+        const prevAssistant =
+          prev && prev.role === "assistant" ? prev : null;
+        if (!prevAssistant) continue;
+        if (parseLatestQuiz(prevAssistant.content) === null) continue;
         const verdict = detectQuizResult(assistant.content);
         if (verdict === null) continue;
         total += 1;
@@ -587,6 +606,12 @@ export function replaceAll(topics: Topic[], messages: Message[]) {
     // Rebuild the FTS index from scratch so any cruft from the previous
     // dataset is gone and every new row is searchable.
     db.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");
+
+    // Recompute scores from the freshly inserted transcript so the
+    // imported correct_count / total_count don't carry over stale values
+    // from the source environment (whose detector logic may have been
+    // older or different). Same logic the boot pass uses.
+    recomputeTopicScores(db);
   });
   tx();
 }

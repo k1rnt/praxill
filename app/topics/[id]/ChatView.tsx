@@ -12,7 +12,7 @@ import {
   stripLatestQuiz,
   type Quiz,
 } from "@/lib/parseQuiz";
-import { parseQuizMeta, stripQuizMeta, type QuizTip } from "@/lib/quizMeta";
+import { parseQuizMeta, type QuizTip } from "@/lib/quizMeta";
 import {
   parseKnowledgeMap,
   serializeKnowledgeMap,
@@ -92,14 +92,25 @@ function groupRoundsByPhase(rounds: Round[]): PhaseGroup[] {
     // "__codex error__" assistant added at export time) was never scored
     // against the topic, so counting it here would put the Phase tally out
     // of sync with the global topic.total_count.
-    const isSkip = SKIP_PREFIX_RE.test(r.user.content.trim());
+    const userContent = r.user.content.trim();
+    const isSkip = SKIP_PREFIX_RE.test(userContent);
     const isInterrupted =
       r.assistant?.content.startsWith("__codex error__") ?? false;
-    const verdict =
-      r.assistant && !isInterrupted ? detectQuizResult(r.assistant.content) : null;
     if (isSkip && r.assistant && !isInterrupted) {
       group.total += 1;
-    } else if (verdict !== null) {
+      continue;
+    }
+    // Mirror /api/topics/[id]/answer's gate: only count when the user
+    // turn is shaped like an answer ("回答: X") AND the previous
+    // assistant actually issued a quiz. Free-form questions whose reply
+    // happens to include "正解です" shouldn't bump the score.
+    if (!/^\s*回答[:：]\s*[A-D]\s*$/m.test(userContent)) continue;
+    if (!r.prevAssistant || parseLatestQuiz(r.prevAssistant.content) === null) {
+      continue;
+    }
+    const verdict =
+      r.assistant && !isInterrupted ? detectQuizResult(r.assistant.content) : null;
+    if (verdict !== null) {
       group.total += 1;
       if (verdict === "correct") group.correct += 1;
     }
@@ -449,6 +460,8 @@ export default function ChatView({
     setReason("");
     setHesitated("");
     setConfidence("");
+    setUnknownTerms("");
+    setQuestion("");
     setShowExtras(false);
     setQuizMode(false);
   }, [lastAssistant?.id]);
