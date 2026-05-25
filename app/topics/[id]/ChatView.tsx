@@ -367,6 +367,15 @@ export default function ChatView({
   // (user message or assistant message).
   const searchParams = useSearchParams();
   const focusParam = searchParams.get("focus");
+  const dexParam = searchParams.get("dex");
+  // Opening the page with ?dex=<term> (e.g. from a column-result search
+  // click) auto-opens the dex overlay scrolled to the requested term.
+  // Done once per dex param so re-toggling the overlay manually after
+  // open doesn't fight the URL.
+  useEffect(() => {
+    if (!dexParam) return;
+    setTipsMode(true);
+  }, [dexParam]);
   const focusedRoundUserId = useMemo(() => {
     if (!focusParam) return null;
     const targetId = Number(focusParam);
@@ -924,6 +933,7 @@ export default function ChatView({
       {tipsMode && (
         <TipsOverlay
           messages={messages}
+          focusTerm={dexParam}
           onClose={() => setTipsMode(false)}
         />
       )}
@@ -1195,9 +1205,11 @@ function WaitingPanel({
  */
 function TipsOverlay({
   messages,
+  focusTerm,
   onClose,
 }: {
   messages: Message[];
+  focusTerm?: string | null;
   onClose: () => void;
 }) {
   const tips = useMemo<QuizTip[]>(() => {
@@ -1215,6 +1227,26 @@ function TipsOverlay({
     }
     return out;
   }, [messages]);
+
+  // Auto-scroll to the requested term if one was passed in (e.g. from a
+  // search result link). Highlight it briefly so the user can see which
+  // row was the target.
+  useEffect(() => {
+    if (!focusTerm) return;
+    const id = window.setTimeout(() => {
+      const el = document.getElementById(
+        "tip-" + encodeURIComponent(focusTerm),
+      );
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("tip-entry--focus");
+      window.setTimeout(
+        () => el.classList.remove("tip-entry--focus"),
+        2000,
+      );
+    }, 50);
+    return () => window.clearTimeout(id);
+  }, [focusTerm]);
 
   // Esc closes — matches MapOverlay's behavior so the keyboard story is
   // consistent across overlays.
@@ -1257,7 +1289,11 @@ function TipsOverlay({
           </div>
         ) : (
           tips.map((t) => (
-            <div className="tip-entry" key={t.term}>
+            <div
+              className="tip-entry"
+              key={t.term}
+              id={"tip-" + encodeURIComponent(t.term)}
+            >
               <div className="tip-entry__term">{t.term}</div>
               <div className="tip-entry__body">{t.body}</div>
             </div>

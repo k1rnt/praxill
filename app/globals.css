@@ -2934,6 +2934,23 @@ kbd {
   word-break: break-word;
   overflow-wrap: anywhere;
 }
+.tip-entry--focus {
+  animation: tipFocusFlash 1.6s ease;
+}
+@keyframes tipFocusFlash {
+  0% {
+    background: var(--bg-elev);
+  }
+  20%,
+  60% {
+    background: color-mix(in srgb, var(--accent) 18%, var(--bg-elev));
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  100% {
+    background: var(--bg-elev);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
 
 
 /* ----- Wait-screen progress bar --------------------------------------
