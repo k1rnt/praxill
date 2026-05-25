@@ -2736,8 +2736,52 @@ kbd {
   overflow-wrap: anywhere;
 }
 
+.waiting-panel__pos {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--fg-muted);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.waiting-panel__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.waiting-panel__arrows {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.waiting-panel__arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev-2);
+  color: var(--fg);
+  transition: background-color 0.1s ease, border-color 0.1s ease;
+  touch-action: manipulation;
+}
+.waiting-panel__arrow:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.waiting-panel__arrow:active {
+  transform: scale(0.97);
+}
+
 .waiting-panel__more {
-  align-self: flex-start;
   background: transparent;
   border: none;
   padding: 4px 0;

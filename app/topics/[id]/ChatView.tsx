@@ -22,6 +22,7 @@ import KnowledgeMapEditor from "@/components/KnowledgeMapEditor";
 import { WaitProgress } from "@/components/WaitProgress";
 import { SKIP_MARKER, SKIP_PREFIX_RE } from "@/lib/skip";
 import {
+  ChevronLeft,
   ChevronRight,
   Map as MapIcon,
   MoreVertical,
@@ -1069,22 +1070,51 @@ function WaitingPanel({
   // count grows), NOT every time codex adds a message. With Phase 2 the
   // assistant adds 2 messages per round (explanation + next quiz) and
   // we don't want the tip to swap mid-round while the user is reading.
+  // Tips.length growth (a new column unlocked) also triggers a re-pick
+  // so the freshly-arrived column gets a chance to be the headline.
   const userTurnCount = useMemo(
     () => messages.filter((m) => m.role === "user" && !m.hidden).length,
     [messages],
   );
-  const pick = useMemo<QuizTip | null>(() => {
-    if (tips.length === 0) return null;
+
+  // Which tip is currently being displayed. Null when there are no tips
+  // yet — the phase-goal fallback handles that case.
+  const [index, setIndex] = useState<number | null>(null);
+  useEffect(() => {
+    if (tips.length === 0) {
+      setIndex(null);
+      return;
+    }
     const lastTerm = lastTipMemory.get(topicId);
-    const choices =
+    const candidatePool =
       tips.length > 1 && lastTerm
-        ? tips.filter((t) => t.term !== lastTerm)
-        : tips;
-    const next = choices[Math.floor(Math.random() * choices.length)];
-    lastTipMemory.set(topicId, next.term);
-    return next;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tips.length, userTurnCount, topicId]);
+        ? tips
+            .map((t, i) => ({ t, i }))
+            .filter(({ t }) => t.term !== lastTerm)
+        : tips.map((t, i) => ({ t, i }));
+    const picked =
+      candidatePool[Math.floor(Math.random() * candidatePool.length)];
+    setIndex(picked.i);
+    lastTipMemory.set(topicId, picked.t.term);
+  }, [userTurnCount, tips.length, topicId]);
+  // Note: pick depends on tips _content_ identity; if tips array shrinks
+  // (extremely rare) the clamp below keeps the index safe.
+
+  const pick: QuizTip | null =
+    index !== null && index >= 0 && index < tips.length ? tips[index] : null;
+
+  function goPrev() {
+    if (index === null || tips.length <= 1) return;
+    const next = (index - 1 + tips.length) % tips.length;
+    setIndex(next);
+    lastTipMemory.set(topicId, tips[next].term);
+  }
+  function goNext() {
+    if (index === null || tips.length <= 1) return;
+    const next = (index + 1) % tips.length;
+    setIndex(next);
+    lastTipMemory.set(topicId, tips[next].term);
+  }
 
   if (pick) {
     return (
@@ -1092,17 +1122,42 @@ function WaitingPanel({
         <div className="waiting-panel__head">
           <span className="waiting-panel__tag">コラム</span>
           <span className="waiting-panel__headline">{pick.term}</span>
+          {tips.length > 1 && (
+            <span className="waiting-panel__pos" aria-hidden>
+              {(index ?? 0) + 1} / {tips.length}
+            </span>
+          )}
         </div>
         <div className="waiting-panel__body">{pick.body}</div>
-        {tips.length > 1 && (
+        <div className="waiting-panel__nav">
+          {tips.length > 1 && (
+            <div className="waiting-panel__arrows">
+              <button
+                type="button"
+                className="waiting-panel__arrow"
+                onClick={goPrev}
+                aria-label="前のコラム"
+              >
+                <ChevronLeft size={16} strokeWidth={2.4} />
+              </button>
+              <button
+                type="button"
+                className="waiting-panel__arrow"
+                onClick={goNext}
+                aria-label="次のコラム"
+              >
+                <ChevronRight size={16} strokeWidth={2.4} />
+              </button>
+            </div>
+          )}
           <button
             type="button"
             className="waiting-panel__more"
             onClick={onOpenTips}
           >
-            これまでのコラム ({tips.length}) →
+            図鑑 ({tips.length}) →
           </button>
-        )}
+        </div>
       </aside>
     );
   }
