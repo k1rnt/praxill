@@ -2692,106 +2692,112 @@ kbd {
    generating. Re-anchors the user on the current Phase's target so the
    wait turns into a "整理する" moment rather than a "blank-stare" moment.
    Subtle so it doesn't compete with the dock CTA or the round card. */
+/* Compact column card — one header row (tag + term + nav controls +
+   dex link) plus a body row. About half the vertical footprint of the
+   earlier 3-row layout so it doesn't dominate the chat / dock stack. */
 .waiting-panel {
-  margin: 14px 0 4px;
-  padding: 14px 16px;
+  margin: 10px 0 4px;
+  padding: 9px 12px 10px;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
-  border-radius: 12px;
+  border-radius: 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 4px;
 }
 
 .waiting-panel__head {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .waiting-panel__tag {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
   color: var(--accent);
   text-transform: uppercase;
   white-space: nowrap;
 }
 
 .waiting-panel__headline {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--fg);
   flex: 1 1 auto;
   min-width: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .waiting-panel__body {
-  font-size: 0.88rem;
+  font-size: 0.84rem;
   color: var(--fg);
-  line-height: 1.65;
+  line-height: 1.55;
   word-break: break-word;
   overflow-wrap: anywhere;
 }
 
+.waiting-panel__controls {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .waiting-panel__pos {
   flex: 0 0 auto;
-  font-size: 0.7rem;
+  font-size: 0.66rem;
   font-weight: 600;
   color: var(--fg-muted);
   letter-spacing: 0.04em;
   font-variant-numeric: tabular-nums;
-}
-
-.waiting-panel__nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-top: 2px;
-}
-
-.waiting-panel__arrows {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  padding: 0 4px;
 }
 
 .waiting-panel__arrow {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 26px;
+  height: 26px;
   padding: 0;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-elev-2);
-  color: var(--fg);
-  transition: background-color 0.1s ease, border-color 0.1s ease;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--fg-muted);
+  transition: background-color 0.1s ease, color 0.1s ease, border-color 0.1s ease;
   touch-action: manipulation;
 }
 .waiting-panel__arrow:hover:not(:disabled) {
-  border-color: var(--accent);
   color: var(--accent);
+  background: var(--bg-elev-2);
 }
 .waiting-panel__arrow:active {
-  transform: scale(0.97);
+  transform: scale(0.94);
 }
 
 .waiting-panel__more {
+  flex: 0 0 auto;
   background: transparent;
-  border: none;
-  padding: 4px 0;
-  color: var(--accent);
-  font-size: 0.78rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
   font-weight: 600;
   cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.1s ease, border-color 0.1s ease;
 }
 .waiting-panel__more:hover {
-  text-decoration: underline;
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 /* ----- Tips overlay (コラム図鑑) ------------------------------------- */

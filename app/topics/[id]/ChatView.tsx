@@ -1123,30 +1123,25 @@ function WaitingPanel({
           <span className="waiting-panel__tag">コラム</span>
           <span className="waiting-panel__headline">{pick.term}</span>
           {tips.length > 1 && (
-            <span className="waiting-panel__pos" aria-hidden>
-              {(index ?? 0) + 1} / {tips.length}
-            </span>
-          )}
-        </div>
-        <div className="waiting-panel__body">{pick.body}</div>
-        <div className="waiting-panel__nav">
-          {tips.length > 1 && (
-            <div className="waiting-panel__arrows">
+            <div className="waiting-panel__controls">
               <button
                 type="button"
                 className="waiting-panel__arrow"
                 onClick={goPrev}
                 aria-label="前のコラム"
               >
-                <ChevronLeft size={16} strokeWidth={2.4} />
+                <ChevronLeft size={14} strokeWidth={2.4} />
               </button>
+              <span className="waiting-panel__pos" aria-hidden>
+                {(index ?? 0) + 1} / {tips.length}
+              </span>
               <button
                 type="button"
                 className="waiting-panel__arrow"
                 onClick={goNext}
                 aria-label="次のコラム"
               >
-                <ChevronRight size={16} strokeWidth={2.4} />
+                <ChevronRight size={14} strokeWidth={2.4} />
               </button>
             </div>
           )}
@@ -1154,10 +1149,12 @@ function WaitingPanel({
             type="button"
             className="waiting-panel__more"
             onClick={onOpenTips}
+            aria-label="コラム図鑑を開く"
           >
-            図鑑 ({tips.length}) →
+            図鑑
           </button>
         </div>
+        <div className="waiting-panel__body">{pick.body}</div>
       </aside>
     );
   }
