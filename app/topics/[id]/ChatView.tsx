@@ -104,7 +104,10 @@ function groupRoundsByPhase(rounds: Round[]): PhaseGroup[] {
     // turn is shaped like an answer ("回答: X") AND the previous
     // assistant actually issued a quiz. Free-form questions whose reply
     // happens to include "正解です" shouldn't bump the score.
-    if (!/^\s*回答[:：]\s*[A-D]\s*$/m.test(userContent)) continue;
+    const userAnswerMatch = userContent.match(
+      /(?:^|\n)\s*回答[:：]\s*([A-D])/,
+    );
+    if (!userAnswerMatch) continue;
     if (!r.prevAssistant || parseLatestQuiz(r.prevAssistant.content) === null) {
       continue;
     }
@@ -113,6 +116,19 @@ function groupRoundsByPhase(rounds: Round[]): PhaseGroup[] {
     if (verdict !== null) {
       group.total += 1;
       if (verdict === "correct") group.correct += 1;
+      continue;
+    }
+    // Codex hasn't graded yet (or never will — interrupted assistants
+    // are filtered above). If the prior assistant's quiz meta agrees
+    // with the user's letter we already know the verdict, so reflect it
+    // in the Phase tally and header instead of leaving them out of sync
+    // with the round chip during the 解説待ち window.
+    if (!r.assistant) {
+      const meta = parseQuizMeta(r.prevAssistant.content);
+      if (meta) {
+        group.total += 1;
+        if (meta.correct === userAnswerMatch[1]) group.correct += 1;
+      }
     }
   }
   return groups;
@@ -776,6 +792,7 @@ export default function ChatView({
 
       {isPending && (
         <WaitingPanel
+          topicId={topicState.id}
           messages={messages}
           map={knowledgeMap}
           currentPhase={topicState.current_phase}
@@ -937,6 +954,12 @@ export default function ChatView({
   );
 }
 
+// Module-level memory so the WaitingPanel can avoid showing the same tip
+// twice in a row across remounts (it unmounts when codex returns, then
+// remounts on the next wait — useRef/useState would reset). Keyed by
+// topic id so different topics don't interfere.
+const lastTipMemory = new Map<string, string>();
+
 /**
  * Helper panel shown while the Trainer is generating a response. Pulls a
  * random "tip" (textbook-column-style glossary entry) from the meta of
@@ -948,14 +971,18 @@ export default function ChatView({
  * very first Q where there are no past tips yet).
  *
  * Picks the tip once per wait period — re-randomising on every render
- * during a single wait would feel flickery.
+ * during a single wait would feel flickery — and avoids repeating the
+ * tip shown during the previous wait when at least one alternative
+ * exists.
  */
 function WaitingPanel({
+  topicId,
   messages,
   map,
   currentPhase,
   totalPhases,
 }: {
+  topicId: string;
   messages: Message[];
   map: KnowledgeMap | null;
   currentPhase: number;
@@ -982,10 +1009,16 @@ function WaitingPanel({
   // changes when codex returns and the next user msg starts a new wait.
   const pick = useMemo<QuizTip | null>(() => {
     if (tips.length === 0) return null;
-    const i = Math.floor(Math.random() * tips.length);
-    return tips[i];
+    const lastTerm = lastTipMemory.get(topicId);
+    const choices =
+      tips.length > 1 && lastTerm
+        ? tips.filter((t) => t.term !== lastTerm)
+        : tips;
+    const next = choices[Math.floor(Math.random() * choices.length)];
+    lastTipMemory.set(topicId, next.term);
+    return next;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tips.length]);
+  }, [tips.length, messages.length, topicId]);
 
   if (pick) {
     return (
