@@ -37,6 +37,17 @@ function buildRehydrationFromDb(topicId: string): string | null {
   });
 }
 
+// Short reminder appended to every /answer codex prompt so the Trainer
+// keeps emitting the hidden meta block on each new quiz, even on long-
+// running sessions where the original rules from buildFinalizePrompt are
+// far away in the context window or were sent before this feature
+// existed. Cheap insurance: <80 tokens per call.
+const META_REMINDER =
+  "\n\n（システム注: 次に出題する4択問題の本文末尾には、必ず以下の HTML コメントを1つだけ含めてください。" +
+  "UI が即時採点に使う非表示メタです。\n" +
+  "<!-- praxill-meta\ncorrect: {正解の選択肢 A|B|C|D}\n-->\n" +
+  "採点応答だけのターン（次の問題を出さないターン）にはメタは不要です。）";
+
 // Appended to the user's message when sent to codex on skip. Tells the
 // Trainer the user gave up rather than guessed wrong, so the response
 // should jump straight to a careful explanation.
@@ -59,8 +70,11 @@ async function runCodexInBackground(
   const localInstanceId = getLocalInstanceId();
   // What codex sees for this turn — the DB user-message stays as the user
   // wrote it so the transcript is faithful; only the model gets the
-  // skip directive appended.
-  const codexPrompt = isSkip ? content + SKIP_DIRECTIVE : content;
+  // system directives appended. Skip directive replaces the meta reminder
+  // because on skip the next call is "explain" not "issue a new quiz".
+  const codexPrompt = isSkip
+    ? content + SKIP_DIRECTIVE
+    : content + META_REMINDER;
 
   try {
     // Three execution paths:
