@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { detectQuizResult, parseLatestQuiz } from "./parseQuiz";
+import { parseQuizMeta, type QuizTip } from "./quizMeta";
 import { SKIP_PREFIX_RE } from "./skip";
 
 // Mirrors the regex used by /api/topics/[id]/answer to decide if a user
@@ -459,6 +460,106 @@ const SNIPPET_PREFIX = "⟪"; // ⟪ — used as a HTML-safe marker; client spli
 const SNIPPET_SUFFIX = "⟫"; // ⟫
 
 /**
+ * Strip `<!-- praxill-meta ... -->` artifacts from a search snippet so
+ * users don't see raw HTML comment syntax in results. Handles complete
+ * blocks plus the truncated open/close fragments that FTS5's snippet
+ * window can produce when the match sits inside or near a meta block.
+ *
+ * Returns the cleaned snippet AND whether the match marker (⟪…⟫)
+ * survived the strip. If the marker was inside the meta block, the
+ * cleaned snippet will have lost it — the caller should drop that
+ * result so a "pure meta" match doesn't show up as a blank-looking row.
+ */
+function sanitizeSnippet(raw: string): { snippet: string; hasMatch: boolean } {
+  let s = raw;
+  // Complete meta blocks.
+  s = s.replace(/<!--\s*praxill-meta\b[\s\S]*?-->/gi, " ");
+  // Truncated open: drop everything from the opening tag onward.
+  s = s.replace(/<!--\s*praxill-meta\b[\s\S]*$/gi, " ");
+  // Leading `-->` with nothing before it that looks like the matching
+  // open: drop the leading fragment up to and including the close.
+  s = s.replace(/^[^<]{0,40}?-->/i, " ");
+  s = s.replace(/[ \t]{2,}/g, " ").replace(/\s+…/g, "…").trim();
+  // Collapse leading/trailing ellipsis dust.
+  if (s.startsWith("… ")) s = "…" + s.slice(2);
+  return { snippet: s, hasMatch: s.includes(SNIPPET_PREFIX) };
+}
+
+export type TipSearchResult = {
+  kind: "tip";
+  topic_id: string;
+  topic_title: string;
+  term: string;
+  body: string;
+  // Highlighted spans use the same markers as message snippets so the
+  // client can render them uniformly.
+  termSnippet: string;
+  bodySnippet: string;
+};
+
+/**
+ * Search collected quiz column tips (the "コラム図鑑" content). Tips are
+ * derived from the meta blocks of visible assistant messages — this
+ * function walks them, dedupes by (topic_id, term), and surfaces those
+ * whose term or body contains the query (case-insensitive substring).
+ *
+ * Returned separately from message search so the UI can render columns
+ * with their full body inline rather than a positional snippet.
+ */
+export function searchTips(query: string, limit = 50): TipSearchResult[] {
+  const q = query.trim();
+  if (q.length === 0) return [];
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT m.content AS content, m.topic_id AS topic_id, t.title AS topic_title
+       FROM messages m
+       JOIN topics t ON t.id = m.topic_id
+       WHERE m.role = 'assistant'
+       ORDER BY m.id ASC`,
+    )
+    .all() as { content: string; topic_id: string; topic_title: string }[];
+
+  const ql = q.toLowerCase();
+  const seen = new Set<string>();
+  const out: TipSearchResult[] = [];
+  function highlight(text: string): string {
+    const lower = text.toLowerCase();
+    const idx = lower.indexOf(ql);
+    if (idx < 0) return text;
+    return (
+      text.slice(0, idx) +
+      SNIPPET_PREFIX +
+      text.slice(idx, idx + q.length) +
+      SNIPPET_SUFFIX +
+      text.slice(idx + q.length)
+    );
+  }
+  for (const r of rows) {
+    const meta = parseQuizMeta(r.content);
+    const tip: QuizTip | null = meta?.tip ?? null;
+    if (!tip) continue;
+    const key = r.topic_id + "|" + tip.term.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const termHit = tip.term.toLowerCase().includes(ql);
+    const bodyHit = tip.body.toLowerCase().includes(ql);
+    if (!termHit && !bodyHit) continue;
+    out.push({
+      kind: "tip",
+      topic_id: r.topic_id,
+      topic_title: r.topic_title,
+      term: tip.term,
+      body: tip.body,
+      termSnippet: termHit ? highlight(tip.term) : tip.term,
+      bodySnippet: bodyHit ? highlight(tip.body) : tip.body,
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+/**
  * Search past messages by keyword. Uses the trigram FTS index for queries
  * of length ≥ 3, falls back to LIKE for 1-2 char queries (trigram can't
  * index sub-3-char tokens). Hidden meta messages are excluded.
@@ -472,7 +573,12 @@ export function searchMessages(query: string, limit = 50): SearchResult[] {
     // Treat the user's input as a single phrase so FTS operators like
     // AND/OR/NOT inside it are escaped to literal text.
     const phrase = '"' + q.replace(/"/g, '""') + '"';
-    return db
+    // Pull more than `limit` so we still hit the cap after dropping
+    // rows whose only match was inside a `<!-- praxill-meta -->` block
+    // (which we sanitize away below). Tip-only matches surface
+    // separately via searchTips().
+    const overFetch = Math.min(limit * 3, 200);
+    const raw = db
       .prepare(
         `
         SELECT
@@ -491,7 +597,15 @@ export function searchMessages(query: string, limit = 50): SearchResult[] {
         LIMIT ?
       `,
       )
-      .all(SNIPPET_PREFIX, SNIPPET_SUFFIX, phrase, limit) as SearchResult[];
+      .all(SNIPPET_PREFIX, SNIPPET_SUFFIX, phrase, overFetch) as SearchResult[];
+    const cleaned: SearchResult[] = [];
+    for (const r of raw) {
+      const { snippet, hasMatch } = sanitizeSnippet(r.snippet);
+      if (!hasMatch) continue;
+      cleaned.push({ ...r, snippet });
+      if (cleaned.length >= limit) break;
+    }
+    return cleaned;
   }
 
   // LIKE fallback — wrap the matched span with the same markers so the
@@ -516,15 +630,22 @@ export function searchMessages(query: string, limit = 50): SearchResult[] {
       LIMIT ?
     `,
     )
-    .all(pattern, limit) as Array<SearchResult & { content: string }>;
-  // Build a snippet client-side that mimics what snippet() does
-  return rows.map((r) => {
-    const content = r.content;
-    const idx = content.toLowerCase().indexOf(q.toLowerCase());
+    .all(pattern, limit * 3) as Array<SearchResult & { content: string }>;
+  // Build a snippet client-side that mimics what snippet() does — but
+  // strip the praxill-meta blocks from the content FIRST so we don't
+  // build a snippet centered on the HTML comment syntax. Same dedup
+  // logic as the FTS path drops "meta-only" matches.
+  const cleaned: SearchResult[] = [];
+  for (const r of rows) {
+    const stripped = r.content
+      .replace(/<!--\s*praxill-meta\b[\s\S]*?-->/gi, " ")
+      .replace(/[ \t]{2,}/g, " ");
+    const idx = stripped.toLowerCase().indexOf(q.toLowerCase());
+    if (idx < 0) continue;
     let start = Math.max(0, idx - 30);
-    let snippet = content.slice(start, start + 200);
+    let snippet = stripped.slice(start, start + 200);
     if (start > 0) snippet = "…" + snippet;
-    if (start + 200 < content.length) snippet = snippet + "…";
+    if (start + 200 < stripped.length) snippet = snippet + "…";
     // Wrap the matched span
     const lowSnip = snippet.toLowerCase();
     const m = lowSnip.indexOf(q.toLowerCase());
@@ -536,15 +657,17 @@ export function searchMessages(query: string, limit = 50): SearchResult[] {
         SNIPPET_SUFFIX +
         snippet.slice(m + q.length);
     }
-    return {
+    cleaned.push({
       message_id: r.message_id,
       topic_id: r.topic_id,
       topic_title: r.topic_title,
       role: r.role,
       created_at: r.created_at,
       snippet,
-    };
-  });
+    });
+    if (cleaned.length >= limit) break;
+  }
+  return cleaned;
 }
 
 /**

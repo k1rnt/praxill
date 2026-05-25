@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { searchMessages } from "@/lib/db";
+import { searchMessages, searchTips } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -12,13 +12,22 @@ export async function GET(req: Request) {
     ? Math.min(Math.max(1, rawLimit), 100)
     : 50;
   if (!q.trim()) {
-    return NextResponse.json({ results: [] });
+    return NextResponse.json({ results: [], tips: [] });
   }
   try {
+    // Two-axis search: messages for the conversational match, tips for
+    // the glossary-style column entries. They share the query but ride
+    // in separate arrays so the client can render them differently
+    // (tip results show the full term + body inline, message results
+    // show a positional snippet linking to the chat).
     const results = searchMessages(q, limit);
-    return NextResponse.json({ results });
+    const tips = searchTips(q, Math.min(limit, 50));
+    return NextResponse.json({ results, tips });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: msg, results: [] }, { status: 500 });
+    return NextResponse.json(
+      { error: msg, results: [], tips: [] },
+      { status: 500 },
+    );
   }
 }

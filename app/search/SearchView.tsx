@@ -13,6 +13,16 @@ type SearchResult = {
   snippet: string;
 };
 
+type TipResult = {
+  kind: "tip";
+  topic_id: string;
+  topic_title: string;
+  term: string;
+  body: string;
+  termSnippet: string;
+  bodySnippet: string;
+};
+
 const PREFIX = "⟪";
 const SUFFIX = "⟫";
 
@@ -42,6 +52,7 @@ export default function SearchView() {
   const [query, setQuery] = useState(initialQ);
   const [debounced, setDebounced] = useState(initialQ);
   const [results, setResults] = useState<SearchResult[]>([]);
+  const [tips, setTips] = useState<TipResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -57,6 +68,7 @@ export default function SearchView() {
     const q = debounced.trim();
     if (!q) {
       setResults([]);
+      setTips([]);
       setError(null);
       return;
     }
@@ -64,12 +76,19 @@ export default function SearchView() {
     setLoading(true);
     fetch(`/api/search?q=${encodeURIComponent(q)}`)
       .then((res) => res.json())
-      .then((data: { results?: SearchResult[]; error?: string }) => {
-        if (cancelled) return;
-        if (data.error) setError(data.error);
-        else setError(null);
-        setResults(data.results ?? []);
-      })
+      .then(
+        (data: {
+          results?: SearchResult[];
+          tips?: TipResult[];
+          error?: string;
+        }) => {
+          if (cancelled) return;
+          if (data.error) setError(data.error);
+          else setError(null);
+          setResults(data.results ?? []);
+          setTips(data.tips ?? []);
+        },
+      )
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       })
@@ -122,33 +141,76 @@ export default function SearchView() {
       )}
       {error && <div className="error">{error}</div>}
 
-      {!loading && debounced.trim() && results.length === 0 && !error && (
-        <div className="search__empty">
-          「{debounced}」に該当する記録が見つかりませんでした
-        </div>
+      {!loading &&
+        debounced.trim() &&
+        results.length === 0 &&
+        tips.length === 0 &&
+        !error && (
+          <div className="search__empty">
+            「{debounced}」に該当する記録が見つかりませんでした
+          </div>
+        )}
+
+      {tips.length > 0 && (
+        <section className="search__section">
+          <h2 className="search__section-title">
+            コラム
+            <span className="search__section-count">{tips.length} 件</span>
+          </h2>
+          <div className="search__results">
+            {tips.map((t) => (
+              <Link
+                key={t.topic_id + "|" + t.term}
+                href={`/topics/${t.topic_id}?dex=${encodeURIComponent(t.term)}`}
+                className="search__result search__result--tip"
+              >
+                <div className="search__result-head">
+                  <span className="search__role search__role--tip">
+                    コラム
+                  </span>
+                  <span className="search__topic-title">{t.topic_title}</span>
+                </div>
+                <div className="search__tip-term">
+                  <HighlightedSnippet text={t.termSnippet} />
+                </div>
+                <div className="search__snippet">
+                  <HighlightedSnippet text={t.bodySnippet} />
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
       )}
 
-      <div className="search__results">
-        {results.map((r) => (
-          <Link
-            key={r.message_id}
-            href={`/topics/${r.topic_id}?focus=${r.message_id}`}
-            className="search__result"
-          >
-            <div className="search__result-head">
-              <span
-                className={`search__role search__role--${r.role}`}
+      {results.length > 0 && (
+        <section className="search__section">
+          {tips.length > 0 && (
+            <h2 className="search__section-title">
+              メッセージ
+              <span className="search__section-count">{results.length} 件</span>
+            </h2>
+          )}
+          <div className="search__results">
+            {results.map((r) => (
+              <Link
+                key={r.message_id}
+                href={`/topics/${r.topic_id}?focus=${r.message_id}`}
+                className="search__result"
               >
-                {r.role === "user" ? "あなた" : "返信"}
-              </span>
-              <span className="search__topic-title">{r.topic_title}</span>
-            </div>
-            <div className="search__snippet">
-              <HighlightedSnippet text={r.snippet} />
-            </div>
-          </Link>
-        ))}
-      </div>
+                <div className="search__result-head">
+                  <span className={`search__role search__role--${r.role}`}>
+                    {r.role === "user" ? "あなた" : "返信"}
+                  </span>
+                  <span className="search__topic-title">{r.topic_title}</span>
+                </div>
+                <div className="search__snippet">
+                  <HighlightedSnippet text={r.snippet} />
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

@@ -2002,6 +2002,53 @@ kbd {
   color: var(--fg-muted);
 }
 
+.search__role--tip {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.search__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 18px;
+}
+.search__section:first-of-type {
+  margin-top: 8px;
+}
+
+.search__section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  margin: 0;
+  padding: 0 4px;
+}
+
+.search__section-count {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--fg-muted);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.search__result--tip {
+  border-left: 3px solid var(--accent);
+}
+
+.search__tip-term {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin-top: 2px;
+}
+
 .search__topic-title {
   flex: 1;
   min-width: 0;
