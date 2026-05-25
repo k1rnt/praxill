@@ -3,6 +3,8 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
+import { detectQuizResult } from "./parseQuiz";
+import { SKIP_PREFIX_RE } from "./skip";
 
 // Store the SQLite database OUTSIDE the project directory so its WAL/SHM
 // sidecar files do not trip the Next.js dev file watcher (which would force
@@ -187,6 +189,60 @@ function init(db: Database.Database) {
   if (ftsCount !== msgCount && msgCount > 0) {
     db.exec("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");
   }
+
+  // Recompute topic.correct_count / total_count from the actual visible
+  // transcript on every boot. The original counters were incremented
+  // incrementally by whichever verdict regex was active at codex-response
+  // time; on long-running topics they drift well behind what the current
+  // detector finds in the same transcript (e.g. a topic with 68/69 in
+  // the per-phase tally but 12/69 in the topic row). The detector and
+  // the skip prefix are the same logic the chat view uses, so after this
+  // pass header / phase tally / export are all derived from one source.
+  // Cheap (one query + per-topic linear pass) and idempotent.
+  recomputeTopicScores(db);
+}
+
+function recomputeTopicScores(db: Database.Database) {
+  const topics = db.prepare("SELECT id FROM topics").all() as { id: string }[];
+  const msgStmt = db.prepare(
+    `SELECT role, content FROM messages
+     WHERE topic_id = ? AND hidden = 0
+     ORDER BY id ASC`,
+  );
+  const updateStmt = db.prepare(
+    "UPDATE topics SET correct_count = ?, total_count = ? WHERE id = ?",
+  );
+  const runUpdates = db.transaction((rows: { id: string }[]) => {
+    for (const t of rows) {
+      const msgs = msgStmt.all(t.id) as {
+        role: "user" | "assistant";
+        content: string;
+      }[];
+      let correct = 0;
+      let total = 0;
+      for (let i = 0; i < msgs.length; i++) {
+        const m = msgs[i];
+        if (m.role !== "user") continue;
+        const next = i + 1 < msgs.length ? msgs[i + 1] : null;
+        const assistant = next && next.role === "assistant" ? next : null;
+        if (!assistant) continue;
+        // Interrupted exchanges (server-restart synthetic) weren't really
+        // graded by codex — ignore them so the count stays honest.
+        if (assistant.content.startsWith("__codex error__")) continue;
+        const isSkip = SKIP_PREFIX_RE.test(m.content.trim());
+        if (isSkip) {
+          total += 1;
+          continue;
+        }
+        const verdict = detectQuizResult(assistant.content);
+        if (verdict === null) continue;
+        total += 1;
+        if (verdict === "correct") correct += 1;
+      }
+      updateStmt.run(correct, total, t.id);
+    }
+  });
+  runUpdates(topics);
 }
 
 export function getDb(): Database.Database {

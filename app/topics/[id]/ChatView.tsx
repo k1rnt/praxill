@@ -217,10 +217,14 @@ function summarizeRound(round: Round): {
 const LETTERS = ["A", "B", "C", "D"] as const;
 type Letter = (typeof LETTERS)[number];
 
-function progressPercent(t: Topic) {
+function progressPercent(
+  t: { current_phase: number; total_phases: number },
+  totalAnswered: number,
+  totalCorrect: number,
+) {
   const phaseRatio =
     t.total_phases > 0 ? Math.min(t.current_phase / t.total_phases, 1) : 0;
-  const accuracy = t.total_count > 0 ? t.correct_count / t.total_count : 0;
+  const accuracy = totalAnswered > 0 ? totalCorrect / totalAnswered : 0;
   return Math.round((phaseRatio * 0.7 + accuracy * 0.3) * 100);
 }
 
@@ -608,14 +612,29 @@ export default function ChatView({
     );
   }
 
-  const pct = progressPercent(topicState);
+  // Derive the displayed score from the same client-side detection that
+  // feeds the per-phase tallies, instead of trusting topic.correct_count /
+  // total_count. The server counters are accumulated at codex-response
+  // time using whichever verdict regex was active back then, so on long-
+  // running topics they drift behind what the current detector finds in
+  // the same transcript. Phase tallies and the header now use one source.
+  const { totalAnswered, totalCorrect } = useMemo(() => {
+    let t = 0;
+    let c = 0;
+    for (const g of phaseGroups) {
+      t += g.total;
+      c += g.correct;
+    }
+    return { totalAnswered: t, totalCorrect: c };
+  }, [phaseGroups]);
+  const pct = progressPercent(topicState, totalAnswered, totalCorrect);
   const phaseLabel =
     topicState.total_phases > 0
       ? `Phase ${topicState.current_phase}/${topicState.total_phases}`
       : `Phase ${topicState.current_phase}`;
   const accuracyLabel =
-    topicState.total_count > 0
-      ? `${topicState.correct_count}/${topicState.total_count} 正解`
+    totalAnswered > 0
+      ? `${totalCorrect}/${totalAnswered} 正解`
       : "未回答";
 
   return (
