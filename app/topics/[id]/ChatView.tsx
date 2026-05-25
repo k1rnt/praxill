@@ -844,6 +844,27 @@ export default function ChatView({
                 <ChevronRight size={22} strokeWidth={2.4} />
               </span>
             </button>
+          ) : isPending ? (
+            // Phase 2 split-call: Call 1's explanation has arrived (so
+            // there's no parsed quiz yet) but Call 2's next quiz is
+            // still being generated. Show a passive "preparing" card
+            // instead of the freeform composer so the user doesn't
+            // race a manual question against the in-flight call.
+            <div className="start-quiz start-quiz--placeholder">
+              <span className="start-quiz__icon" aria-hidden>
+                <Notebook size={22} strokeWidth={2} />
+              </span>
+              <span className="start-quiz__body">
+                <span className="start-quiz__title">
+                  次の問題を準備中…
+                </span>
+                <WaitProgress
+                  active={sending}
+                  label="考えています…"
+                  variant="dock"
+                />
+              </span>
+            </div>
           ) : (
             <FreeComposer
               value={freeText}

@@ -417,16 +417,20 @@ export function withCodexLock(
   topicId: string,
   lockId: string,
   op: (topic: Topic) => void,
+  opts: { release?: boolean } = {},
 ): boolean {
   const db = getDb();
+  const release = opts.release !== false;
   const tx = db.transaction(() => {
     const topic = getTopic(topicId);
     if (!topic || topic.codex_lock !== lockId) return false;
     op(topic);
-    updateTopic(topicId, {
-      codex_lock: null,
-      pending_user_message_id: null,
-    });
+    if (release) {
+      updateTopic(topicId, {
+        codex_lock: null,
+        pending_user_message_id: null,
+      });
+    }
     return true;
   });
   return tx();

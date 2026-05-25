@@ -1375,6 +1375,18 @@ kbd {
   box-shadow: var(--shadow-accent);
 }
 
+/* Phase 2 "preparing" variant — sits in the dock between Call 1's
+   explanation arriving and Call 2's next quiz finishing. No click
+   target, no chevron, slightly muted so it doesn't look interactive. */
+.start-quiz--placeholder {
+  opacity: 0.92;
+  filter: saturate(0.85);
+  cursor: default;
+}
+.start-quiz--placeholder:active {
+  transform: none;
+}
+
 .start-quiz__icon {
   flex: 0 0 auto;
   display: inline-flex;
