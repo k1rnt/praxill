@@ -2716,23 +2716,10 @@ kbd {
   min-width: 0;
 }
 
-.waiting-panel__row {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.waiting-panel__label {
-  font-size: 0.72rem;
-  color: var(--fg-muted);
-  letter-spacing: 0.04em;
-  font-weight: 600;
-}
-
-.waiting-panel__value {
+.waiting-panel__body {
   font-size: 0.88rem;
   color: var(--fg);
-  line-height: 1.55;
+  line-height: 1.65;
   word-break: break-word;
   overflow-wrap: anywhere;
 }

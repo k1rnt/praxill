@@ -44,8 +44,8 @@ function buildRehydrationFromDb(topicId: string): string | null {
 // existed. Cheap insurance: <80 tokens per call.
 const META_REMINDER =
   "\n\n（システム注: 次に出題する4択問題の本文末尾には、必ず以下の HTML コメントを1つだけ含めてください。" +
-  "UI が即時採点に使う非表示メタです。\n" +
-  "<!-- praxill-meta\ncorrect: {正解の選択肢 A|B|C|D}\n-->\n" +
+  "UI が即時採点と「コラム」表示に使う非表示メタです。\n" +
+  "<!-- praxill-meta\ncorrect: {正解の選択肢 A|B|C|D}\ntip: {用語} | {1〜2文の標準語の用語解説。問題に登場した用語のうち初登場や学習者がつまずきやすいものを選び、その用語単体として読める短い説明を書いてください。正解そのものはバラさないこと。}\n-->\n" +
   "採点応答だけのターン（次の問題を出さないターン）にはメタは不要です。）";
 
 // Appended to the user's message when sent to codex on skip. Tells the

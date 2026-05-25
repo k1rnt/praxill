@@ -12,7 +12,7 @@ import {
   stripLatestQuiz,
   type Quiz,
 } from "@/lib/parseQuiz";
-import { parseQuizMeta, stripQuizMeta } from "@/lib/quizMeta";
+import { parseQuizMeta, stripQuizMeta, type QuizTip } from "@/lib/quizMeta";
 import {
   parseKnowledgeMap,
   serializeKnowledgeMap,
@@ -727,8 +727,9 @@ export default function ChatView({
         )}
       </div>
 
-      {isPending && knowledgeMap && (
+      {isPending && (
         <WaitingPanel
+          messages={messages}
           map={knowledgeMap}
           currentPhase={topicState.current_phase}
           totalPhases={topicState.total_phases}
@@ -886,60 +887,89 @@ export default function ChatView({
 }
 
 /**
- * Helper panel shown while the Trainer is generating a response. Reframes
- * the wait from "stare at progress bar" into "re-anchor on the Phase
- * goal". Only shown when we actually have a knowledge map to pull
- * meaningful content from — otherwise we'd just be saying "Phase X" with
- * no useful detail.
+ * Helper panel shown while the Trainer is generating a response. Pulls a
+ * random "tip" (textbook-column-style glossary entry) from the meta of
+ * past assistant messages so the wait becomes a quick reference moment
+ * rather than a blank stare at the progress bar.
+ *
+ * Falls back to the current Phase's headline + goal when no tips are
+ * available (legacy topics from before the tip meta shipped, or the
+ * very first Q where there are no past tips yet).
+ *
+ * Picks the tip once per wait period — re-randomising on every render
+ * during a single wait would feel flickery.
  */
 function WaitingPanel({
+  messages,
   map,
   currentPhase,
   totalPhases,
 }: {
-  map: KnowledgeMap;
+  messages: Message[];
+  map: KnowledgeMap | null;
   currentPhase: number;
   totalPhases: number;
 }) {
-  // Find the phase row whose label matches the topic's current_phase. Try
-  // both literal index and "Phase N" digit extraction so we tolerate
-  // custom labels.
+  const tips = useMemo<QuizTip[]>(() => {
+    const out: QuizTip[] = [];
+    const seen = new Set<string>();
+    for (const m of messages) {
+      if (m.role !== "assistant") continue;
+      const meta = parseQuizMeta(m.content);
+      const tip = meta?.tip;
+      if (!tip) continue;
+      // Dedupe by term — same term repeated isn't useful for a column,
+      // and the model sometimes echoes prior terms.
+      if (seen.has(tip.term)) continue;
+      seen.add(tip.term);
+      out.push(tip);
+    }
+    return out;
+  }, [messages]);
+
+  // Pick once per wait period. messages.length is the "wait epoch" — it
+  // changes when codex returns and the next user msg starts a new wait.
+  const pick = useMemo<QuizTip | null>(() => {
+    if (tips.length === 0) return null;
+    const i = Math.floor(Math.random() * tips.length);
+    return tips[i];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tips.length]);
+
+  if (pick) {
+    return (
+      <aside className="waiting-panel" aria-live="polite">
+        <div className="waiting-panel__head">
+          <span className="waiting-panel__tag">コラム</span>
+          <span className="waiting-panel__headline">{pick.term}</span>
+        </div>
+        <div className="waiting-panel__body">{pick.body}</div>
+      </aside>
+    );
+  }
+
+  // Phase-goal fallback for legacy topics with no tips yet.
+  if (!map) return null;
   const phaseRow =
     map.phases.find((p) => {
       const m = p.phase.match(/(\d+)/);
       return m ? parseInt(m[1], 10) === currentPhase : false;
     }) ?? map.phases[currentPhase - 1] ?? null;
   if (!phaseRow) return null;
-
-  // Pull the two fields we care about by label. Map editor uses these
-  // labels too, so this is the canonical shape.
   const goalField = phaseRow.fields.find((f) =>
     f.label.includes("合格"),
   );
-  const keywordField = phaseRow.fields.find((f) =>
-    f.label.includes("キーワード"),
-  );
-
   return (
     <aside className="waiting-panel" aria-live="polite">
       <div className="waiting-panel__head">
         <span className="waiting-panel__tag">
-          待ち時間 · Phase {currentPhase}
+          Phase {currentPhase}
           {totalPhases > 0 ? ` / ${totalPhases}` : ""}
         </span>
         <span className="waiting-panel__headline">{phaseRow.headline}</span>
       </div>
       {goalField?.value && (
-        <div className="waiting-panel__row">
-          <div className="waiting-panel__label">この Phase の合格条件</div>
-          <div className="waiting-panel__value">{goalField.value}</div>
-        </div>
-      )}
-      {keywordField?.value && (
-        <div className="waiting-panel__row">
-          <div className="waiting-panel__label">代表的なキーワード</div>
-          <div className="waiting-panel__value">{keywordField.value}</div>
-        </div>
+        <div className="waiting-panel__body">{goalField.value}</div>
       )}
     </aside>
   );
