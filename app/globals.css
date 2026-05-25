@@ -2736,6 +2736,108 @@ kbd {
   overflow-wrap: anywhere;
 }
 
+.waiting-panel__more {
+  align-self: flex-start;
+  background: transparent;
+  border: none;
+  padding: 4px 0;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.waiting-panel__more:hover {
+  text-decoration: underline;
+}
+
+/* ----- Tips overlay (コラム図鑑) ------------------------------------- */
+.tips-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.22s ease;
+}
+
+.tips-overlay__header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) 14px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.tips-overlay__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  min-height: 40px;
+  border-radius: 10px;
+  color: var(--fg);
+  background: var(--bg-elev-2);
+  font-size: 0.9rem;
+  border: 1px solid var(--border);
+}
+
+.tips-overlay__title {
+  flex: 1;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.tips-overlay__count {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.tips-overlay__body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 18px 16px calc(24px + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tips-overlay__empty {
+  color: var(--fg-muted);
+  text-align: center;
+  margin-top: 40px;
+  padding: 24px;
+  line-height: 1.7;
+}
+
+.tip-entry {
+  padding: 14px 16px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tip-entry__term {
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+.tip-entry__body {
+  font-size: 0.88rem;
+  color: var(--fg);
+  line-height: 1.65;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 
 /* ----- Wait-screen progress bar --------------------------------------
    Elements are <span> for HTML5 phrasing-content compatibility (the dock

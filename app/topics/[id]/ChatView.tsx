@@ -284,6 +284,7 @@ export default function ChatView({
   const [messages, setMessages] = useState(initialMessages);
   const [quizMode, setQuizMode] = useState(false);
   const [mapMode, setMapMode] = useState(false);
+  const [tipsMode, setTipsMode] = useState(false);
   const [openPhases, setOpenPhases] = useState<Set<string>>(() => new Set());
   const [selected, setSelected] = useState<Letter | null>(null);
   const [reason, setReason] = useState("");
@@ -708,6 +709,15 @@ export default function ChatView({
               マップ
             </button>
           )}
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={() => setTipsMode(true)}
+            aria-label="コラム図鑑を開く"
+            title="この題材で出てきた用語のコラム一覧"
+          >
+            図鑑
+          </button>
           <div className="kebab">
             <button
               type="button"
@@ -807,15 +817,14 @@ export default function ChatView({
         )}
       </div>
 
-      {isPending && (
-        <WaitingPanel
-          topicId={topicState.id}
-          messages={messages}
-          map={knowledgeMap}
-          currentPhase={topicState.current_phase}
-          totalPhases={topicState.total_phases}
-        />
-      )}
+      <WaitingPanel
+        topicId={topicState.id}
+        messages={messages}
+        map={knowledgeMap}
+        currentPhase={topicState.current_phase}
+        totalPhases={topicState.total_phases}
+        onOpenTips={() => setTipsMode(true)}
+      />
 
       {error && <div className="error">{error}</div>}
 
@@ -908,6 +917,13 @@ export default function ChatView({
           onMapUpdated={(updatedTopic) => {
             if (updatedTopic) setTopicState(updatedTopic);
           }}
+        />
+      )}
+
+      {tipsMode && (
+        <TipsOverlay
+          messages={messages}
+          onClose={() => setTipsMode(false)}
         />
       )}
 
@@ -1023,12 +1039,14 @@ function WaitingPanel({
   map,
   currentPhase,
   totalPhases,
+  onOpenTips,
 }: {
   topicId: string;
   messages: Message[];
   map: KnowledgeMap | null;
   currentPhase: number;
   totalPhases: number;
+  onOpenTips: () => void;
 }) {
   const tips = useMemo<QuizTip[]>(() => {
     const out: QuizTip[] = [];
@@ -1047,8 +1065,14 @@ function WaitingPanel({
     return out;
   }, [messages]);
 
-  // Pick once per wait period. messages.length is the "wait epoch" — it
-  // changes when codex returns and the next user msg starts a new wait.
+  // Re-pick when the user starts a new turn (= visible user message
+  // count grows), NOT every time codex adds a message. With Phase 2 the
+  // assistant adds 2 messages per round (explanation + next quiz) and
+  // we don't want the tip to swap mid-round while the user is reading.
+  const userTurnCount = useMemo(
+    () => messages.filter((m) => m.role === "user" && !m.hidden).length,
+    [messages],
+  );
   const pick = useMemo<QuizTip | null>(() => {
     if (tips.length === 0) return null;
     const lastTerm = lastTipMemory.get(topicId);
@@ -1060,7 +1084,7 @@ function WaitingPanel({
     lastTipMemory.set(topicId, next.term);
     return next;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tips.length, messages.length, topicId]);
+  }, [tips.length, userTurnCount, topicId]);
 
   if (pick) {
     return (
@@ -1070,6 +1094,15 @@ function WaitingPanel({
           <span className="waiting-panel__headline">{pick.term}</span>
         </div>
         <div className="waiting-panel__body">{pick.body}</div>
+        {tips.length > 1 && (
+          <button
+            type="button"
+            className="waiting-panel__more"
+            onClick={onOpenTips}
+          >
+            これまでのコラム ({tips.length}) →
+          </button>
+        )}
       </aside>
     );
   }
@@ -1098,6 +1131,88 @@ function WaitingPanel({
         <div className="waiting-panel__body">{goalField.value}</div>
       )}
     </aside>
+  );
+}
+
+/**
+ * Full-screen overlay listing every unique tip the Trainer has emitted
+ * for this topic — a "コラム図鑑" the user can browse to revisit terms
+ * they've already seen explained mid-wait. Entries dedupe by term so
+ * repeated tips (the model sometimes echoes prior columns) only appear
+ * once. Order is first-introduced-first.
+ */
+function TipsOverlay({
+  messages,
+  onClose,
+}: {
+  messages: Message[];
+  onClose: () => void;
+}) {
+  const tips = useMemo<QuizTip[]>(() => {
+    const out: QuizTip[] = [];
+    const seen = new Set<string>();
+    for (const m of messages) {
+      if (m.role !== "assistant") continue;
+      const meta = parseQuizMeta(m.content);
+      const tip = meta?.tip;
+      if (!tip) continue;
+      const key = tip.term.trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(tip);
+    }
+    return out;
+  }, [messages]);
+
+  // Esc closes — matches MapOverlay's behavior so the keyboard story is
+  // consistent across overlays.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (
+        e.target instanceof HTMLElement &&
+        (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")
+      ) {
+        return;
+      }
+      e.preventDefault();
+      onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="tips-overlay" role="dialog" aria-modal="true">
+      <div className="tips-overlay__header">
+        <button
+          type="button"
+          className="tips-overlay__back"
+          onClick={onClose}
+          aria-label="戻る"
+        >
+          ← 戻る
+        </button>
+        <span className="tips-overlay__title">コラム図鑑</span>
+        <span className="tips-overlay__count">
+          {tips.length} 件
+        </span>
+      </div>
+      <div className="tips-overlay__body">
+        {tips.length === 0 ? (
+          <div className="tips-overlay__empty">
+            まだコラムが集まっていません。問題を解いていくと、登場した用語の解説がここに溜まっていきます。
+          </div>
+        ) : (
+          tips.map((t) => (
+            <div className="tip-entry" key={t.term}>
+              <div className="tip-entry__term">{t.term}</div>
+              <div className="tip-entry__body">{t.body}</div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 
