@@ -3,13 +3,15 @@ import type { NextRequest } from "next/server";
 import { extractByMime } from "@/lib/extractSubject";
 
 export const dynamic = "force-dynamic";
-// 50s — PDF parsing for larger documents can be slow; this avoids the
-// default 10s edge function cap that would 504 mid-parse.
-export const maxDuration = 50;
+// 5 minutes — certification PDFs (OSCP, CRTP etc.) can be 800+ pages
+// and take 60-120s to walk page-by-page. The default 10s cap would
+// 504 mid-parse.
+export const maxDuration = 300;
 
-// 20 MB upload ceiling. Anything larger almost certainly contains
-// material a single topic shouldn't be modelling end-to-end anyway.
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+// 100 MB upload ceiling — sized for full certification course PDFs.
+// Anything past that probably needs to be split into multiple topics
+// anyway since codex's context can't usefully absorb it.
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
   let form: FormData;
@@ -66,7 +68,9 @@ export async function POST(req: NextRequest) {
       sizeBytes: file.size,
       mimeType: mime,
       text: out.text,
+      textBytes: out.sizeBytes,
       truncated: out.truncated,
+      large: out.large,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

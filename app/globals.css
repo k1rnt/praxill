@@ -480,6 +480,12 @@ kbd {
   line-height: 1.5;
 }
 
+.form__extracted-info {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  line-height: 1.5;
+}
+
 .form__extracted-clear {
   position: absolute;
   top: 8px;

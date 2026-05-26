@@ -7,7 +7,9 @@ import { Upload, X as XIcon } from "lucide-react";
 type ExtractedFile = {
   fileName: string;
   sizeBytes: number;
+  textBytes: number;
   truncated: boolean;
+  large: boolean;
 };
 
 export default function NewTopicForm() {
@@ -42,7 +44,9 @@ export default function NewTopicForm() {
         text?: string;
         fileName?: string;
         sizeBytes?: number;
+        textBytes?: number;
         truncated?: boolean;
+        large?: boolean;
         error?: string;
       };
       if (!res.ok || !data.text) {
@@ -54,7 +58,9 @@ export default function NewTopicForm() {
       setExtracted({
         fileName: data.fileName ?? file.name,
         sizeBytes: data.sizeBytes ?? file.size,
+        textBytes: data.textBytes ?? data.text.length,
         truncated: data.truncated ?? false,
+        large: data.large ?? false,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "ネットワークエラー");
@@ -140,7 +146,7 @@ export default function NewTopicForm() {
             />
           </label>
           <span className="form__hint">
-            Markdown / HTML / PDF を読み込んでテキスト化します(上限 20 MB)
+            Markdown / HTML / PDF を読み込んでテキスト化します(ファイル上限 100 MB、抽出テキスト上限 1 MB)
           </span>
         </div>
         {extracted && (
@@ -148,12 +154,21 @@ export default function NewTopicForm() {
             <div className="form__extracted-name">
               📄 {extracted.fileName}{" "}
               <span className="form__extracted-size">
-                ({Math.round(extracted.sizeBytes / 1024)} KB)
+                ({Math.round(extracted.sizeBytes / 1024)} KB →{" "}
+                {Math.round(extracted.textBytes / 1024)} KB テキスト)
               </span>
             </div>
             {extracted.truncated && (
               <div className="form__extracted-warn">
-                ⚠ 長すぎるため一部を省略しました。下の本文を必要に応じて編集してください。
+                ⚠ 文字数上限 (1 MB) を超えたため末尾を省略しました。
+                続きが必要な部分は別 topic に分けるか、本文を編集してから送信してください。
+              </div>
+            )}
+            {!extracted.truncated && extracted.large && (
+              <div className="form__extracted-info">
+                ℹ 抽出テキストが大きめです (
+                {Math.round(extracted.textBytes / 1024)} KB)。
+                生成と各ターンの処理が長くなる場合があります。
               </div>
             )}
             <button

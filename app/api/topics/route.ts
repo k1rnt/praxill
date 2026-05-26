@@ -67,6 +67,16 @@ export async function POST(req: Request) {
   if (!title || !subject || !goal) {
     return badRequest("title, subject, goal は必須です");
   }
+  // Subject is sent to codex in buildDraftPrompt and stays in scope for
+  // every rehydration. Codex (GPT-5.5) handles large prompts, but >2 MB
+  // of subject text is past the point where it's actually useful and
+  // adds latency to every later turn. Reject early.
+  const SUBJECT_MAX_BYTES = 2 * 1024 * 1024;
+  if (Buffer.byteLength(subject, "utf8") > SUBJECT_MAX_BYTES) {
+    return badRequest(
+      `題材が長すぎます (上限 ${SUBJECT_MAX_BYTES / 1024 / 1024} MB)。要点に絞るか、別 topic に分けてください。`,
+    );
+  }
 
   const id = randomUUID();
   const lockId = randomUUID();
