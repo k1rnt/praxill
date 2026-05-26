@@ -64,6 +64,14 @@ export async function POST(req: Request) {
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const subject = typeof body.subject === "string" ? body.subject.trim() : "";
   const goal = typeof body.goal === "string" ? body.goal.trim() : "";
+  // Optional: the original full text the user summarized down to
+  // `subject`. Stored only as a reference for future re-summarization /
+  // auditing — not sent to codex on any turn.
+  const subjectRawRaw =
+    typeof body.subject_raw === "string" ? body.subject_raw : null;
+  const subject_raw =
+    subjectRawRaw && subjectRawRaw.trim().length > 0 ? subjectRawRaw : null;
+
   if (!title || !subject || !goal) {
     return badRequest("title, subject, goal は必須です");
   }
@@ -77,6 +85,14 @@ export async function POST(req: Request) {
       `題材が長すぎます (上限 ${SUBJECT_MAX_BYTES / 1024 / 1024} MB)。要点に絞るか、別 topic に分けてください。`,
     );
   }
+  // subject_raw is just stored — don't bound it as tightly. 10 MB is a
+  // generous ceiling for original course material.
+  if (
+    subject_raw !== null &&
+    Buffer.byteLength(subject_raw, "utf8") > 10 * 1024 * 1024
+  ) {
+    return badRequest("元資料 (subject_raw) が大きすぎます (上限 10 MB)");
+  }
 
   const id = randomUUID();
   const lockId = randomUUID();
@@ -87,7 +103,7 @@ export async function POST(req: Request) {
   // in the background so the user can navigate away (background tab on
   // mobile etc.) without an aborted fetch.
   db.transaction(() => {
-    createTopic({ id, title, subject, goal, status: "draft" });
+    createTopic({ id, title, subject, goal, status: "draft", subject_raw });
     addMessage(id, "user", buildDraftPrompt(subject, goal), true);
     updateTopic(id, { codex_lock: lockId });
   })();

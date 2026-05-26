@@ -1,4 +1,43 @@
 /**
+ * Summarize a raw learning resource (full extracted text of a PDF /
+ * Markdown / HTML) into a structured "studyable outline". The outline
+ * replaces the raw text as the topic's subject so the Trainer can
+ * digest the material in one read at draft time and so subsequent
+ * rehydration prompts stay small. Aim ~50-150 KB regardless of input
+ * size (within the model's compression ratio for technical content).
+ */
+export function buildSummarizePrompt(rawText: string, goal: string): string {
+  return `あなたは資格試験や技術書の編集者です。私はこれから渡す資料で学習し、最終的に以下の目的を達成したいです。
+
+# 学習者の目的
+${goal}
+
+# 今やってほしいこと
+資料の本文を読み込んで、**学習目的の達成に必要なポイントを構造化アウトラインとしてまとめてください**。アウトラインは後段で「知識マップ生成」「4択クイズ出題」に使われるため、概念・前提・代表的なシナリオ・つまずきポイントが網羅されていることが重要です。
+
+# アウトラインの形式
+- Markdown で出力してください。見出しレベル \`##\` を章、\`###\` を節、本文は箇条書き(\`-\`)。
+- 各節には次を含めてください:
+  - その節で学習者が **理解すべき主要概念** (1〜5項目)
+  - 学習者が混同しやすい **似た概念との違い** や **典型的な誤解**
+  - 代表的な **コマンド / 用語 / 図式の名前**(出てきた場合)
+  - **判断問題になりうるシナリオ**(「X の状況で何を選ぶか」など、ペネトレ系資料なら攻撃経路の分岐)
+- 元の資料の文章をそのまま引用するのではなく、**要点に圧縮して整理**してください。
+- 順序は資料に沿って書いて構いませんが、明らかに学習効率が悪い章分割は組み替えても構いません。
+- 不要な前置き(著者紹介・序文)や付録は省いて、テストで聞かれるであろう知識に絞ってください。
+- 出力の冒頭に \`# {推定される題材名}\` を 1 行入れて、その後にアウトライン本体。
+- 補足の前置きや結び(「以下にまとめます」「ご質問があれば〜」)は不要です。アウトライン本体のみ返してください。
+
+# 入力資料
+ここから資料本文が続きます。読み込んで上の指示に従って出力してください。
+
+---
+${rawText}
+---
+`;
+}
+
+/**
  * Draft prompt: ask the Trainer to produce ONLY the knowledge map and
  * stop. The user reviews/edits, then we hit `buildFinalizePrompt`.
  */

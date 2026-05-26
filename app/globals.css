@@ -447,6 +447,16 @@ kbd {
   cursor: pointer;
 }
 
+.form__summarize {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.form__summarize-progress {
+  margin: 4px 0 8px;
+}
+
 .form__extracted {
   position: relative;
   background: var(--bg-elev);

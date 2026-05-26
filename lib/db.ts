@@ -156,6 +156,15 @@ function init(db: Database.Database) {
   // collaborative provenance can be added later without colliding.
   ensureColumn(db, "topics", "thread_owner_instance_id", "TEXT");
 
+  // Original full-text material when the user summarized a large
+  // resource (PDF / Markdown / HTML) into an outline at topic-creation
+  // time. The outline lives in `subject` and drives the Trainer
+  // prompts; `subject_raw` is kept as a reference so the user can
+  // re-summarize with a different goal, or audit what the outline
+  // skipped. NULL on every existing row and on topics that never
+  // went through the summarize flow.
+  ensureColumn(db, "topics", "subject_raw", "TEXT");
+
   // Full-text search over message content. External-content mode + trigram
   // tokenizer — the trigram approach works well for CJK because it doesn't
   // depend on whitespace tokenization. Triggers keep the FTS index in lock
@@ -319,6 +328,7 @@ export type Topic = {
   codex_lock: string | null;
   knowledge_map_markdown: string | null;
   thread_owner_instance_id: string | null;
+  subject_raw: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -350,14 +360,24 @@ export function createTopic(t: {
   subject: string;
   goal: string;
   status?: TopicStatus;
+  subject_raw?: string | null;
 }): Topic {
   const now = new Date().toISOString();
   getDb()
     .prepare(
-      `INSERT INTO topics (id, title, subject, goal, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO topics (id, title, subject, goal, status, subject_raw, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(t.id, t.title, t.subject, t.goal, t.status ?? "active", now, now);
+    .run(
+      t.id,
+      t.title,
+      t.subject,
+      t.goal,
+      t.status ?? "active",
+      t.subject_raw ?? null,
+      now,
+      now,
+    );
   return getTopic(t.id)!;
 }
 
@@ -683,13 +703,13 @@ export function replaceAll(topics: Topic[], messages: Message[]) {
       current_phase, total_phases, correct_count, total_count,
       status, pending_user_message_id, codex_lock,
       knowledge_map_markdown, thread_owner_instance_id,
-      created_at, updated_at
+      subject_raw, created_at, updated_at
     ) VALUES (
       @id, @title, @subject, @goal, @thread_id,
       @current_phase, @total_phases, @correct_count, @total_count,
       @status, @pending_user_message_id, @codex_lock,
       @knowledge_map_markdown, @thread_owner_instance_id,
-      @created_at, @updated_at
+      @subject_raw, @created_at, @updated_at
     )
   `);
   const insertMessage = db.prepare(`
@@ -714,6 +734,7 @@ export function replaceAll(topics: Topic[], messages: Message[]) {
         codex_lock: null,
         knowledge_map_markdown: t.knowledge_map_markdown ?? null,
         thread_owner_instance_id: t.thread_owner_instance_id ?? null,
+        subject_raw: t.subject_raw ?? null,
       });
     }
     for (const m of messages) {
