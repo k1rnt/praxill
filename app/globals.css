@@ -432,6 +432,74 @@ kbd {
   justify-content: flex-end;
 }
 
+.form__subject-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 6px 0 8px;
+}
+
+.form__upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.form__extracted {
+  position: relative;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  padding: 10px 36px 10px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.form__extracted-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--fg);
+  word-break: break-all;
+}
+
+.form__extracted-size {
+  font-size: 0.74rem;
+  color: var(--fg-muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.form__extracted-warn {
+  font-size: 0.78rem;
+  color: var(--danger);
+  line-height: 1.5;
+}
+
+.form__extracted-clear {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.form__extracted-clear:hover {
+  background: var(--bg-elev-2);
+  color: var(--fg);
+}
+
 /* Chat */
 .chat-meta {
   background: var(--bg-elev);

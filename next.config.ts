@@ -43,6 +43,11 @@ const nextConfig: NextConfig = {
   // this just stops benign noise (e.g. wallet-extension errors) from showing
   // up as a persistent indicator.
   devIndicators: false,
+  // pdfjs-dist's legacy build does dynamic imports of its worker chunk at
+  // runtime. Turbopack rewrites those imports during bundling, so the
+  // worker can't be located. Leaving the package as a server-side external
+  // makes Node resolve the worker against the real node_modules path.
+  serverExternalPackages: ["pdfjs-dist"],
 };
 
 export default nextConfig;

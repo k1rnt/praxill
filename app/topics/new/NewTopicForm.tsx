@@ -1,7 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Upload, X as XIcon } from "lucide-react";
+
+type ExtractedFile = {
+  fileName: string;
+  sizeBytes: number;
+  truncated: boolean;
+};
 
 export default function NewTopicForm() {
   const router = useRouter();
@@ -10,6 +17,56 @@ export default function NewTopicForm() {
   const [goal, setGoal] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // File-upload-into-subject flow. Pure UX helper: the extracted text
+  // is dropped into the subject textarea so the user can review / trim
+  // before submitting. The actual /api/topics POST is unchanged.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [extracted, setExtracted] = useState<ExtractedFile | null>(null);
+
+  async function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // reset so picking the same file again re-fires
+    if (!file) return;
+    setExtracting(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/topics/extract", {
+        method: "POST",
+        body: form,
+      });
+      const data = (await res.json()) as {
+        text?: string;
+        fileName?: string;
+        sizeBytes?: number;
+        truncated?: boolean;
+        error?: string;
+      };
+      if (!res.ok || !data.text) {
+        setError(data.error ?? "ファイルを読み込めませんでした");
+        setExtracting(false);
+        return;
+      }
+      setSubject(data.text);
+      setExtracted({
+        fileName: data.fileName ?? file.name,
+        sizeBytes: data.sizeBytes ?? file.size,
+        truncated: data.truncated ?? false,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ネットワークエラー");
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  function clearExtracted() {
+    setExtracted(null);
+    setSubject("");
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -61,12 +118,61 @@ export default function NewTopicForm() {
         <label className="form__label" htmlFor="subject">
           題材
         </label>
+        <div className="form__subject-tools">
+          <label className="btn btn--ghost btn--sm form__upload">
+            {extracting ? (
+              <>
+                <span className="spinner" /> 読み込み中…
+              </>
+            ) : (
+              <>
+                <Upload size={14} strokeWidth={2.4} />
+                <span>ファイルから追加</span>
+              </>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".md,.markdown,.txt,text/markdown,text/plain,.html,.htm,text/html,.pdf,application/pdf"
+              onChange={pickFile}
+              disabled={extracting || submitting}
+              style={{ display: "none" }}
+            />
+          </label>
+          <span className="form__hint">
+            Markdown / HTML / PDF を読み込んでテキスト化します(上限 20 MB)
+          </span>
+        </div>
+        {extracted && (
+          <div className="form__extracted">
+            <div className="form__extracted-name">
+              📄 {extracted.fileName}{" "}
+              <span className="form__extracted-size">
+                ({Math.round(extracted.sizeBytes / 1024)} KB)
+              </span>
+            </div>
+            {extracted.truncated && (
+              <div className="form__extracted-warn">
+                ⚠ 長すぎるため一部を省略しました。下の本文を必要に応じて編集してください。
+              </div>
+            )}
+            <button
+              type="button"
+              className="form__extracted-clear"
+              onClick={clearExtracted}
+              aria-label="読み込んだ内容を破棄"
+              title="読み込んだ内容を破棄"
+            >
+              <XIcon size={14} strokeWidth={2.4} />
+            </button>
+          </div>
+        )}
         <textarea
           id="subject"
           className="form__textarea"
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
-          placeholder="例: TLS 1.3 のハンドシェイクと暗号化の仕組み"
+          placeholder="例: TLS 1.3 のハンドシェイクと暗号化の仕組み。直接書いてもよし、上のボタンから資料を読み込んで貼り込んでもよし。"
           required
         />
       </div>
@@ -85,7 +191,11 @@ export default function NewTopicForm() {
       </div>
       {error && <div className="error">{error}</div>}
       <div className="form__actions">
-        <button type="submit" className="btn btn--primary" disabled={submitting}>
+        <button
+          type="submit"
+          className="btn btn--primary"
+          disabled={submitting || extracting}
+        >
           {submitting ? (
             <>
               <span className="spinner" /> 作成中…
