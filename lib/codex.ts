@@ -245,24 +245,27 @@ function buildArgs(reasoning?: string): string[] {
   // permissive: it combined "never approve" with "no sandbox at all"
   // when only the first was actually needed.
   //
-  // The current configuration:
-  //   -s read-only            : if the model ever tries a tool, it's
-  //                             confined to reading. Writes / shell
-  //                             exec fail immediately.
-  //   approval_policy="never" : non-interactive runs never pause for
-  //                             user approval — failures are returned
-  //                             to the model so it can continue.
+  // The current configuration uses -c (config override) for both
+  // sandbox and approval policy because these args ride the same
+  // flag list into BOTH `codex exec` AND `codex exec resume`, and
+  // the resume subcommand rejects the `-s` / `--sandbox` short form.
+  // -c is universally accepted.
   //
-  // Functionally equivalent for our use case (verified: same latency,
-  // same outputs) with materially smaller blast radius if a prompt-
-  // injection or model misbehavior triggered tool calls.
+  //   sandbox_mode="read-only"     : if the model ever tries a tool,
+  //                                  it's confined to reading.
+  //                                  Writes / shell exec fail
+  //                                  immediately.
+  //   approval_policy="never"      : non-interactive runs never pause
+  //                                  for user approval — failures are
+  //                                  returned to the model so it can
+  //                                  continue.
   return [
-    "-s",
-    "read-only",
     "--skip-git-repo-check",
     "--json",
     "-m",
     MODEL,
+    "-c",
+    `sandbox_mode="read-only"`,
     "-c",
     `approval_policy="never"`,
     "-c",
