@@ -2871,14 +2871,25 @@ kbd {
   border-radius: 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+  /* Reserve vertical pan to the browser so the page still scrolls
+     normally when the user starts a vertical drag; horizontal swipes
+     fall through to our React touch handler for tip navigation. */
+  touch-action: pan-y;
 }
 
-.waiting-panel__head {
+/* Chrome row: tag, position chip, ◀/▶, dex link. Term itself lives on
+   its own line below so it can wrap to multi-line without trampling
+   the controls or getting cut off with an ellipsis. */
+.waiting-panel__bar {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.waiting-panel__bar-spacer {
+  flex: 1 1 auto;
 }
 
 .waiting-panel__tag {
@@ -2892,14 +2903,12 @@ kbd {
 }
 
 .waiting-panel__headline {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: 0.88rem;
+  font-size: 0.92rem;
   font-weight: 700;
   color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .waiting-panel__body {

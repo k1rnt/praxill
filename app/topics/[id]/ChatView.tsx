@@ -1154,12 +1154,42 @@ function WaitingPanel({
     lastTipMemory.set(topicId, tips[next].term);
   }
 
+  // Touch swipe — secondary input on mobile so the ◀/▶ arrows aren't
+  // the only way to flip cards. Triggers only on clearly-horizontal
+  // gestures (|dx| > |dy| × 2) of at least 40 px so it doesn't fight
+  // with vertical scroll. The arrows remain primary on both mobile
+  // and PC since they're the discoverable interface.
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  function handleTouchStart(e: React.TouchEvent) {
+    if (e.touches.length !== 1) return;
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+  }
+  function handleTouchEnd(e: React.TouchEvent) {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || e.changedTouches.length === 0) return;
+    const dx = e.changedTouches[0].clientX - start.x;
+    const dy = e.changedTouches[0].clientY - start.y;
+    if (Math.abs(dx) < 40) return;
+    if (Math.abs(dx) < Math.abs(dy) * 2) return;
+    if (dx < 0) goNext();
+    else goPrev();
+  }
+
   if (pick) {
     return (
-      <aside className="waiting-panel" aria-live="polite">
-        <div className="waiting-panel__head">
+      <aside
+        className="waiting-panel"
+        aria-live="polite"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        <div className="waiting-panel__bar">
           <span className="waiting-panel__tag">コラム</span>
-          <span className="waiting-panel__headline">{pick.term}</span>
+          <span className="waiting-panel__bar-spacer" />
           {tips.length > 1 && (
             <div className="waiting-panel__controls">
               <button
@@ -1192,6 +1222,7 @@ function WaitingPanel({
             図鑑
           </button>
         </div>
+        <div className="waiting-panel__headline">{pick.term}</div>
         <div className="waiting-panel__body">{pick.body}</div>
       </aside>
     );
@@ -1210,13 +1241,13 @@ function WaitingPanel({
   );
   return (
     <aside className="waiting-panel" aria-live="polite">
-      <div className="waiting-panel__head">
+      <div className="waiting-panel__bar">
         <span className="waiting-panel__tag">
           Phase {currentPhase}
           {totalPhases > 0 ? ` / ${totalPhases}` : ""}
         </span>
-        <span className="waiting-panel__headline">{phaseRow.headline}</span>
       </div>
+      <div className="waiting-panel__headline">{phaseRow.headline}</div>
       {goalField?.value && (
         <div className="waiting-panel__body">{goalField.value}</div>
       )}
