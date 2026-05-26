@@ -182,11 +182,15 @@ kbd {
 }
 
 .app-main--chat {
-  /* Reserve room for the bottom dock. The FreeComposer (textarea +
-     quick-reply chips + send row) is the worst case and needs ~300px
-     including the dock's own padding. Smaller modes (start-quiz button)
-     will just have a bit of empty space at the bottom — acceptable. */
-  padding-bottom: calc(300px + var(--safe-bottom));
+  /* Reserve room for the bottom dock. The dock height varies wildly
+     between modes (~80px for the start-quiz CTA, ~270px for the
+     FreeComposer), so ChatView measures it at runtime via ResizeObserver
+     and sets --praxill-dock-height; we fall back to a small default in
+     case JS hasn't measured yet on the first paint. The extra 24px
+     keeps the last content from butting against the dock edge. */
+  padding-bottom: calc(
+    var(--praxill-dock-height, 100px) + 24px + var(--safe-bottom)
+  );
 }
 
 .app-main--chat-cta {
@@ -2848,10 +2852,10 @@ kbd {
 /* Compact column card — one header row (tag + term + nav controls +
    dex link) plus a body row. About half the vertical footprint of the
    earlier 3-row layout so it doesn't dominate the chat / dock stack.
-   margin-bottom keeps clear of the fixed-position dock so the two
-   don't visually fuse. */
+   Top margin gives breathing room from the latest round card above
+   (they previously kissed); bottom margin keeps clear of the dock. */
 .waiting-panel {
-  margin: 10px 0 18px;
+  margin: 24px 0 16px;
   padding: 9px 12px 10px;
   background: var(--bg-elev);
   border: 1px solid var(--border);

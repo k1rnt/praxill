@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
@@ -307,6 +307,31 @@ export default function ChatView({
   // POST /answer is making the round-trip itself.
   const isPending = topicState.pending_user_message_id !== null;
   const sending = submitting || isPending;
+
+  // Measure the bottom dock's actual height and publish it as a CSS
+  // custom property on <html>, so the chat content's padding-bottom can
+  // be tight in start-quiz mode (~80px dock) and roomy in FreeComposer
+  // mode (~270px dock) without hardcoding a worst-case reservation.
+  const dockRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = dockRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const apply = (h: number) => {
+      document.documentElement.style.setProperty(
+        "--praxill-dock-height",
+        `${Math.ceil(h)}px`,
+      );
+    };
+    apply(el.getBoundingClientRect().height);
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) apply(e.contentRect.height);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty("--praxill-dock-height");
+    };
+  }, []);
 
   // Persistent wait-start timestamp shared across the dock's "answering"
   // and "next-quiz pending" branches so the WaitProgress bar doesn't reset
@@ -838,7 +863,7 @@ export default function ChatView({
 
       {error && <div className="error">{error}</div>}
 
-      <div className="quiz-dock">
+      <div className="quiz-dock" ref={dockRef}>
         <div className="quiz-dock__inner">
           {quiz ? (
             <button
