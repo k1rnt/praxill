@@ -465,6 +465,10 @@ kbd {
   font-weight: 600;
   color: var(--fg);
   word-break: break-all;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .form__extracted-size {
@@ -478,12 +482,26 @@ kbd {
   font-size: 0.78rem;
   color: var(--danger);
   line-height: 1.5;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.form__extracted-warn svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
 }
 
 .form__extracted-info {
   font-size: 0.78rem;
   color: var(--fg-muted);
   line-height: 1.5;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.form__extracted-info svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
 }
 
 .form__extracted-clear {

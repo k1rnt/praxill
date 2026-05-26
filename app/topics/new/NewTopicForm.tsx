@@ -2,7 +2,13 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, X as XIcon } from "lucide-react";
+import {
+  AlertTriangle,
+  FileText,
+  Info,
+  Upload,
+  X as XIcon,
+} from "lucide-react";
 
 type ExtractedFile = {
   fileName: string;
@@ -152,7 +158,8 @@ export default function NewTopicForm() {
         {extracted && (
           <div className="form__extracted">
             <div className="form__extracted-name">
-              📄 {extracted.fileName}{" "}
+              <FileText size={14} strokeWidth={2.2} />
+              <span>{extracted.fileName}</span>
               <span className="form__extracted-size">
                 ({Math.round(extracted.sizeBytes / 1024)} KB →{" "}
                 {Math.round(extracted.textBytes / 1024)} KB テキスト)
@@ -160,15 +167,21 @@ export default function NewTopicForm() {
             </div>
             {extracted.truncated && (
               <div className="form__extracted-warn">
-                ⚠ 文字数上限 (1 MB) を超えたため末尾を省略しました。
-                続きが必要な部分は別 topic に分けるか、本文を編集してから送信してください。
+                <AlertTriangle size={14} strokeWidth={2.2} />
+                <span>
+                  文字数上限 (1 MB) を超えたため末尾を省略しました。
+                  続きが必要な部分は別 topic に分けるか、本文を編集してから送信してください。
+                </span>
               </div>
             )}
             {!extracted.truncated && extracted.large && (
               <div className="form__extracted-info">
-                ℹ 抽出テキストが大きめです (
-                {Math.round(extracted.textBytes / 1024)} KB)。
-                生成と各ターンの処理が長くなる場合があります。
+                <Info size={14} strokeWidth={2.2} />
+                <span>
+                  抽出テキストが大きめです (
+                  {Math.round(extracted.textBytes / 1024)} KB)。
+                  生成と各ターンの処理が長くなる場合があります。
+                </span>
               </div>
             )}
             <button
