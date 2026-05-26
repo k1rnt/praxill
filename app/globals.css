@@ -1230,6 +1230,14 @@ kbd {
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 0.88em;
+  /* Inline code with long unbreakable tokens (Distinguished Names,
+     command lines, hashes, etc.) should wrap inside the container
+     instead of pushing past its right edge. overflow-wrap: anywhere
+     lets the browser break mid-token only when no other break point
+     fits; word-break: break-word is the older alias for legacy
+     engines. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown pre {
