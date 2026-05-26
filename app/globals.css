@@ -558,20 +558,31 @@ kbd {
   margin-bottom: 16px;
 }
 
+/* Legacy single-row variant kept for any callers still using it. */
 .chat-meta__row {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
+/* Title gets its own line so long names (cert-style "上級ペネトレー
+   ションテスター" etc.) don't get ellipsis-cut by the action buttons
+   that used to share the row. */
 .chat-meta__title {
   font-weight: 600;
   font-size: 0.98rem;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.chat-meta__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
 }
 
 .chat-meta__goal {

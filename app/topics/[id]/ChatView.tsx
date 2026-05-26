@@ -758,8 +758,8 @@ export default function ChatView({
   return (
     <>
       <div className="chat-meta">
-        <div className="chat-meta__row">
-          <div className="chat-meta__title">{topicState.title}</div>
+        <div className="chat-meta__title">{topicState.title}</div>
+        <div className="chat-meta__actions">
           <button
             type="button"
             className="btn btn--ghost btn--sm"
