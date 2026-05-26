@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
-import { cancelCodexCall, codexStart } from "@/lib/codex";
+import { CREATION_REASONING, cancelCodexCall, codexStart } from "@/lib/codex";
 import { buildSummarizePrompt } from "@/lib/prompt";
 import { badRequest, readJsonObject, sanitizeCodexError } from "@/lib/http";
 
@@ -30,12 +30,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Optional reasoning override from the client; default to whatever the
-  // server-side env defines so the Settings "fast mode" still applies.
-  const reasoning =
-    body.reasoning === "medium" || body.reasoning === "high"
-      ? (body.reasoning as "medium" | "high")
-      : undefined;
+  // Summarize is a one-shot creation step — always run at the higher
+  // reasoning effort regardless of the client's per-quiz preference,
+  // because this output anchors every subsequent quiz turn.
+  const reasoning = CREATION_REASONING;
 
   // Track the spawned codex child so we can kill it if the client
   // aborts mid-flight (closing the tab during a 2-3 min summarize would

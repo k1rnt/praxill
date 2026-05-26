@@ -2,7 +2,23 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
 const CODEX_BIN = process.env.CODEX_BIN || "codex";
 const MODEL = process.env.CODEX_MODEL || "gpt-5.5";
-const REASONING = process.env.CODEX_REASONING || "medium";
+// Default reasoning effort for normal per-answer turns. Defaulting to
+// "high" gives noticeably better quizzes and explanations at a ~30-50%
+// latency cost compared to "medium". Settings → 高速モード flips this
+// back to "medium" per-request when the user wants speed > quality.
+const REASONING = process.env.CODEX_REASONING || "high";
+
+/**
+ * Reasoning effort to use for one-shot creation-time codex calls:
+ * the knowledge-map draft, /finalize's first Q, retry-draft, and the
+ * summarize step that compresses an uploaded resource into a study
+ * outline. These run once per topic and the result feeds every later
+ * turn (the knowledge map / outline / Q1 anchor everything that
+ * follows), so the extra latency + token cost is amortised. Regular
+ * per-answer turns keep using the user's chosen "medium" / "high"
+ * setting because they happen 50-100× per topic.
+ */
+export const CREATION_REASONING = "xhigh";
 // Guard against CODEX_TIMEOUT_MS="abc" — Number(...) → NaN and
 // setTimeout(NaN) fires immediately, which would 500 every codex call.
 const TIMEOUT_MS = (() => {

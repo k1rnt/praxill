@@ -9,7 +9,7 @@ import {
   updateTopic,
   withCodexLock,
 } from "@/lib/db";
-import { codexStart } from "@/lib/codex";
+import { CREATION_REASONING, codexStart } from "@/lib/codex";
 import { buildDraftPrompt } from "@/lib/prompt";
 import { parseAssistantProgress } from "@/lib/progress";
 import { stripLatestQuiz } from "@/lib/parseQuiz";
@@ -73,7 +73,7 @@ export async function POST(
   }
 
   try {
-    const result = await codexStart(claim.prompt, undefined, lockId);
+    const result = await codexStart(claim.prompt, CREATION_REASONING, lockId);
 
     const wrote = withCodexLock(id, lockId, () => {
       addMessage(id, "assistant", result.text);

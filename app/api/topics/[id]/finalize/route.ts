@@ -9,7 +9,7 @@ import {
   updateTopic,
   withCodexLock,
 } from "@/lib/db";
-import { codexResume, codexStart } from "@/lib/codex";
+import { CREATION_REASONING, codexResume, codexStart } from "@/lib/codex";
 import { buildDraftPrompt, buildFinalizePrompt } from "@/lib/prompt";
 import { parseAssistantProgress } from "@/lib/progress";
 import { parseKnowledgeMap } from "@/lib/parseKnowledgeMap";
@@ -89,7 +89,7 @@ export async function POST(
   const startBootstrap = () =>
     codexStart(
       buildDraftPrompt(claim.subject, claim.goal) + "\n\n" + finalizePrompt,
-      undefined,
+      CREATION_REASONING,
       lockId,
     );
   try {
@@ -100,7 +100,7 @@ export async function POST(
         result = await codexResume(
           claim.threadId,
           finalizePrompt,
-          undefined,
+          CREATION_REASONING,
           lockId,
         );
       } catch (resumeErr) {

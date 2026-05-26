@@ -10,7 +10,7 @@ import {
   updateTopic,
   withCodexLock,
 } from "@/lib/db";
-import { codexStart } from "@/lib/codex";
+import { CREATION_REASONING, codexStart } from "@/lib/codex";
 import { buildDraftPrompt } from "@/lib/prompt";
 import { parseAssistantProgress } from "@/lib/progress";
 import { stripLatestQuiz } from "@/lib/parseQuiz";
@@ -31,7 +31,7 @@ async function runDraftInBackground(
 ) {
   try {
     const prompt = buildDraftPrompt(subject, goal);
-    const result = await codexStart(prompt, undefined, lockId);
+    const result = await codexStart(prompt, CREATION_REASONING, lockId);
 
     const wrote = withCodexLock(topicId, lockId, () => {
       addMessage(topicId, "assistant", result.text);
