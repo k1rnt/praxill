@@ -239,12 +239,32 @@ function runCodex(
 
 function buildArgs(reasoning?: string): string[] {
   const level = reasoning || REASONING;
+  // Praxill only asks codex for text generation — never tool use,
+  // shell commands, or file writes. The earlier
+  // `--dangerously-bypass-approvals-and-sandbox` was unnecessarily
+  // permissive: it combined "never approve" with "no sandbox at all"
+  // when only the first was actually needed.
+  //
+  // The current configuration:
+  //   -s read-only            : if the model ever tries a tool, it's
+  //                             confined to reading. Writes / shell
+  //                             exec fail immediately.
+  //   approval_policy="never" : non-interactive runs never pause for
+  //                             user approval — failures are returned
+  //                             to the model so it can continue.
+  //
+  // Functionally equivalent for our use case (verified: same latency,
+  // same outputs) with materially smaller blast radius if a prompt-
+  // injection or model misbehavior triggered tool calls.
   return [
-    "--dangerously-bypass-approvals-and-sandbox",
+    "-s",
+    "read-only",
     "--skip-git-repo-check",
     "--json",
     "-m",
     MODEL,
+    "-c",
+    `approval_policy="never"`,
     "-c",
     `model_reasoning_effort="${level}"`,
   ];
