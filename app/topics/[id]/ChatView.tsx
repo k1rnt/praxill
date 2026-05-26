@@ -352,7 +352,17 @@ export default function ChatView({
     };
     apply(el.getBoundingClientRect().height);
     const ro = new ResizeObserver((entries) => {
-      for (const e of entries) apply(e.contentRect.height);
+      for (const e of entries) {
+        // contentRect excludes padding + border so the dock would
+        // appear ~23px shorter than reality on first observer firing.
+        // borderBoxSize includes them; fall back to bounding rect
+        // when the engine doesn't expose it.
+        const box = e.borderBoxSize?.[0];
+        const h = box
+          ? box.blockSize
+          : (e.target as Element).getBoundingClientRect().height;
+        apply(h);
+      }
     });
     ro.observe(el);
     return () => {
@@ -1189,7 +1199,22 @@ function WaitingPanel({
   // and PC since they're the discoverable interface.
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   function handleTouchStart(e: React.TouchEvent) {
-    if (e.touches.length !== 1) return;
+    // Multi-touch (pinch, second finger) — clear any in-flight start so
+    // a stale one-finger origin can't fire goNext/goPrev on touchEnd.
+    if (e.touches.length !== 1) {
+      touchStartRef.current = null;
+      return;
+    }
+    // Don't capture taps that started on an interactive control — the
+    // arrows, dex button, etc. should run their own onClick handler,
+    // not also flip the card via the swipe path.
+    if (
+      e.target instanceof Element &&
+      e.target.closest("button, a, input, textarea, [role='button']")
+    ) {
+      touchStartRef.current = null;
+      return;
+    }
     touchStartRef.current = {
       x: e.touches[0].clientX,
       y: e.touches[0].clientY,
@@ -1206,6 +1231,11 @@ function WaitingPanel({
     if (dx < 0) goNext();
     else goPrev();
   }
+  function handleTouchCancel() {
+    // The browser aborted the gesture (system gesture took over,
+    // element scrolled out of view, etc.) — discard the start point.
+    touchStartRef.current = null;
+  }
 
   if (pick) {
     return (
@@ -1214,6 +1244,7 @@ function WaitingPanel({
         aria-live="polite"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
       >
         <div className="waiting-panel__bar">
           <span className="waiting-panel__tag">コラム</span>
