@@ -78,7 +78,12 @@ export default function RootLayout({
             <header className="app-header">
               <div className="app-header__inner">
                 <div className="app-header__title">
-                  <Link href="/">Praxill</Link>
+                  <Link href="/">
+                    <span className="app-header__mark" aria-hidden>
+                      🪶
+                    </span>
+                    Praxill
+                  </Link>
                 </div>
                 <div className="app-header__spacer" />
                 <Link

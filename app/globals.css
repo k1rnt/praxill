@@ -168,6 +168,14 @@ kbd {
 
 .app-header__title a {
   color: var(--fg);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-header__mark {
+  font-size: 1.05em;
+  line-height: 1;
 }
 
 .app-header__spacer {
@@ -1225,11 +1233,16 @@ kbd {
   margin: 3px 0;
 }
 
-.markdown code {
+.markdown code,
+.round__scenario code,
+.round__option-recap-text code,
+.quiz-overlay__scenario code,
+.quiz-overlay__option-text code {
   background: var(--bg-elev-2);
   padding: 1px 6px;
   border-radius: 4px;
   font-size: 0.88em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   /* Inline code with long unbreakable tokens (Distinguished Names,
      command lines, hashes, etc.) should wrap inside the container
      instead of pushing past its right edge. overflow-wrap: anywhere
@@ -2722,6 +2735,13 @@ kbd {
     font-size: 1.05rem;
     color: var(--fg);
     letter-spacing: 0.01em;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sidebar__brand-mark {
+    font-size: 1.05em;
+    line-height: 1;
   }
   .sidebar__new {
     display: inline-flex;

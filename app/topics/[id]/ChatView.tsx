@@ -245,6 +245,34 @@ function summarizeRound(round: Round): {
 const LETTERS = ["A", "B", "C", "D"] as const;
 type Letter = (typeof LETTERS)[number];
 
+/**
+ * Lightweight inline-markdown renderer for short text where pulling in
+ * ReactMarkdown would be overkill (quiz scenarios, option labels —
+ * always one short paragraph). Handles single-backtick `inline code`
+ * by wrapping it in <code>; everything else is rendered as-is.
+ *
+ * Escaped backticks ("\\`") are left alone so the rare case of a
+ * literal backtick still works.
+ */
+function renderInline(text: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  // Match `…` greedily-but-shortest. Negative lookbehind for backslash
+  // would be cleaner but Safari support is fine in modern versions.
+  const re = /`([^`\n]+)`/g;
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > lastIndex) {
+      out.push(text.slice(lastIndex, m.index));
+    }
+    out.push(<code key={key++}>{m[1]}</code>);
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < text.length) out.push(text.slice(lastIndex));
+  return out;
+}
+
 function progressPercent(
   t: { current_phase: number; total_phases: number },
   totalAnswered: number,
@@ -1450,7 +1478,9 @@ function RoundCard({
               <div className="round__section-label">出題</div>
               <div className="round__question">
                 {prevQuiz.scenario && (
-                  <div className="round__scenario">{prevQuiz.scenario}</div>
+                  <div className="round__scenario">
+                    {renderInline(prevQuiz.scenario)}
+                  </div>
                 )}
                 <div className="round__options-recap">
                   {(["A", "B", "C", "D"] as const).map((l) => (
@@ -1464,7 +1494,7 @@ function RoundCard({
                     >
                       <span className="round__option-recap-letter">{l}</span>
                       <span className="round__option-recap-text">
-                        {prevQuiz.options[l]}
+                        {renderInline(prevQuiz.options[l])}
                       </span>
                     </div>
                   ))}
@@ -1878,7 +1908,9 @@ function QuizOverlay({
 
       <div className="quiz-overlay__body">
         {quiz.scenario && (
-          <div className="quiz-overlay__scenario">{quiz.scenario}</div>
+          <div className="quiz-overlay__scenario">
+            {renderInline(quiz.scenario)}
+          </div>
         )}
 
         <div className="quiz-overlay__options">
@@ -1895,7 +1927,7 @@ function QuizOverlay({
             >
               <span className="quiz-overlay__option-letter">{l}</span>
               <span className="quiz-overlay__option-text">
-                {quiz.options[l]}
+                {renderInline(quiz.options[l])}
               </span>
             </button>
           ))}

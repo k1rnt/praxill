@@ -14,6 +14,9 @@ export function Sidebar() {
     <aside className="sidebar" aria-label="サイドバー">
       <div className="sidebar__head">
         <Link href="/" className="sidebar__brand">
+          <span className="sidebar__brand-mark" aria-hidden>
+            🪶
+          </span>
           Praxill
         </Link>
         <Link
