@@ -530,15 +530,32 @@ export function searchTips(query: string, limit = 50): TipSearchResult[] {
   const q = query.trim();
   if (q.length === 0) return [];
   const db = getDb();
+  // Pre-filter at the SQL layer to avoid running parseQuizMeta over
+  // every assistant message in the database on each debounced
+  // keystroke. The first LIKE narrows to messages that even have a
+  // meta block; the second narrows further to those whose content
+  // contains the query string (the query could be inside the meta
+  // block or anywhere else — parseQuizMeta will confirm whether it's
+  // actually inside a tip below). Both LIKEs are case-sensitive but
+  // that's fine because our tips are dominated by mixed-case English
+  // technical terms and full-width Japanese where casing is irrelevant.
+  const escaped = q.replace(/[\\%_]/g, (c) => "\\" + c);
+  const queryPattern = "%" + escaped + "%";
   const rows = db
     .prepare(
       `SELECT m.content AS content, m.topic_id AS topic_id, t.title AS topic_title
        FROM messages m
        JOIN topics t ON t.id = m.topic_id
        WHERE m.role = 'assistant'
+         AND m.content LIKE '%praxill-meta%'
+         AND m.content LIKE ? ESCAPE '\\'
        ORDER BY m.id ASC`,
     )
-    .all() as { content: string; topic_id: string; topic_title: string }[];
+    .all(queryPattern) as {
+    content: string;
+    topic_id: string;
+    topic_title: string;
+  }[];
 
   const ql = q.toLowerCase();
   const seen = new Set<string>();

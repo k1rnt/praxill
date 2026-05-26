@@ -127,6 +127,12 @@ export async function extractPdf(
   } as unknown as GetDocParam;
   const doc = await pdfjs.getDocument(params).promise;
   const chunks: string[] = [];
+  // Track accumulated UTF-8 bytes so we can bail early once we have
+  // enough material to fill the clamp window. A 1000-page PDF where
+  // we only need the first ~100 pages otherwise burns minutes of
+  // CPU + memory on pages we'd throw away in clamp().
+  let accumulatedBytes = 0;
+  const EARLY_STOP_BYTES = Math.ceil(MAX_BYTES * 1.25);
   for (let p = 1; p <= doc.numPages; p += 1) {
     const page = await doc.getPage(p);
     const content = await page.getTextContent();
@@ -140,10 +146,16 @@ export async function extractPdf(
       .filter((s) => typeof s === "string")
       .join(" ");
     chunks.push(text);
+    accumulatedBytes += Buffer.byteLength(text, "utf8");
     // Release page resources as we go so a 1000-page PDF doesn't pile
     // up everything in memory at once. The next page lazy-loads.
     if (typeof (page as { cleanup?: () => void }).cleanup === "function") {
       (page as { cleanup: () => void }).cleanup();
+    }
+    if (accumulatedBytes >= EARLY_STOP_BYTES) {
+      // clamp() will truncate the joined text anyway — no point in
+      // walking the rest of the document.
+      break;
     }
   }
   await doc.cleanup();

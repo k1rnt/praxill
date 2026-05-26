@@ -273,7 +273,7 @@ export default function NewTopicForm() {
             </button>
           )}
           <span className="form__hint">
-            Markdown / HTML / PDF を読み込んでテキスト化します(ファイル上限 100 MB、抽出テキスト上限 1 MB)
+            Markdown / HTML / PDF を読み込んでテキスト化します(ファイル上限 50 MB、抽出テキスト上限 1 MB)
           </span>
         </div>
         {summarizing && (

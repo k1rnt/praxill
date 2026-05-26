@@ -8,10 +8,26 @@ export const dynamic = "force-dynamic";
 // 504 mid-parse.
 export const maxDuration = 300;
 
-// 100 MB upload ceiling — sized for full certification course PDFs.
-// Anything past that probably needs to be split into multiple topics
-// anyway since codex's context can't usefully absorb it.
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+// 50 MB upload ceiling — sized for typical certification course PDFs.
+// Was 100 MB but file.arrayBuffer() loads the entire upload into
+// memory, so two concurrent 100 MB extractions could OOM the server.
+// 50 MB covers the realistic cert-PDF range (OSCP, CRTP are usually
+// 20-40 MB) while keeping the memory footprint bounded per request.
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+// Single-flight semaphore for extraction. The extract path keeps the
+// whole file resident in memory (arrayBuffer + per-page text), and the
+// PDF parser is CPU-bound on a single thread, so running two large
+// extractions in parallel doesn't help latency and risks OOM.
+// Subsequent requests queue behind the in-flight one.
+let extractInFlight: Promise<unknown> = Promise.resolve();
+function serialExtract<T>(fn: () => Promise<T>): Promise<T> {
+  const next = extractInFlight.then(() => fn());
+  // Swallow rejection on the chain itself so a single failure doesn't
+  // poison every subsequent request.
+  extractInFlight = next.catch(() => undefined);
+  return next;
+}
 
 export async function POST(req: NextRequest) {
   let form: FormData;
@@ -53,7 +69,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const buf = await file.arrayBuffer();
-    const out = await extractByMime(buf, mime, name);
+    const out = await serialExtract(() => extractByMime(buf, mime, name));
     if (out.empty) {
       return NextResponse.json(
         {
