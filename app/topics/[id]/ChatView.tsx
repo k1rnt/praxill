@@ -12,7 +12,7 @@ import {
   stripLatestQuiz,
   type Quiz,
 } from "@/lib/parseQuiz";
-import { parseQuizMeta, type QuizTip } from "@/lib/quizMeta";
+import { parseQuizMeta, tipDedupKey, type QuizTip } from "@/lib/quizMeta";
 import {
   parseKnowledgeMap,
   serializeKnowledgeMap,
@@ -512,14 +512,14 @@ export default function ChatView({
 
   // Lock body scroll while any full-screen overlay is open
   useEffect(() => {
-    if (quizMode || mapMode) {
+    if (quizMode || mapMode || tipsMode) {
       const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
       return () => {
         document.body.style.overflow = prev;
       };
     }
-  }, [quizMode, mapMode]);
+  }, [quizMode, mapMode, tipsMode]);
 
   // Poll for the Trainer's reply while a codex call is running server-side.
   // Survives the mobile tab being backgrounded — when the tab comes back the
@@ -1067,10 +1067,13 @@ function WaitingPanel({
       const meta = parseQuizMeta(m.content);
       const tip = meta?.tip;
       if (!tip) continue;
-      // Dedupe by term — same term repeated isn't useful for a column,
-      // and the model sometimes echoes prior terms.
-      if (seen.has(tip.term)) continue;
-      seen.add(tip.term);
+      // Dedupe by a normalised key so casing / surrounding whitespace
+      // variations of the same term collapse to one entry. Same key
+      // function used by TipsOverlay and searchTips so the three views
+      // stay in lockstep.
+      const key = tipDedupKey(tip.term);
+      if (seen.has(key)) continue;
+      seen.add(key);
       out.push(tip);
     }
     return out;
@@ -1220,7 +1223,7 @@ function TipsOverlay({
       const meta = parseQuizMeta(m.content);
       const tip = meta?.tip;
       if (!tip) continue;
-      const key = tip.term.trim();
+      const key = tipDedupKey(tip.term);
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(tip);

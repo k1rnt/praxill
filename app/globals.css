@@ -182,8 +182,11 @@ kbd {
 }
 
 .app-main--chat {
-  /* Reserve room for the bottom dock (CTA or free-text composer) */
-  padding-bottom: calc(160px + var(--safe-bottom));
+  /* Reserve room for the bottom dock. The FreeComposer (textarea +
+     quick-reply chips + send row) is the worst case and needs ~300px
+     including the dock's own padding. Smaller modes (start-quiz button)
+     will just have a bit of empty space at the bottom — acceptable. */
+  padding-bottom: calc(300px + var(--safe-bottom));
 }
 
 .app-main--chat-cta {
@@ -1275,14 +1278,15 @@ kbd {
   left: 0;
   right: 0;
   z-index: 30;
-  background: linear-gradient(
-    to top,
-    var(--bg) 0%,
-    var(--bg) 60%,
-    color-mix(in srgb, var(--bg) 0%, transparent) 100%
-  );
-  padding: 18px 0 calc(8px + var(--safe-bottom));
-  pointer-events: none;
+  /* Solid background with a thin top border so the dock reads as a
+     distinct surface from whatever's scrolling above it. The earlier
+     fade-to-transparent gradient let the waiting-panel bleed into the
+     dock's vertical space and looked like a UI collision. */
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -8px 24px color-mix(in srgb, var(--bg) 65%, transparent);
+  padding: 14px 0 calc(8px + var(--safe-bottom));
+  pointer-events: auto;
 }
 
 .quiz-dock__inner {
@@ -2843,9 +2847,11 @@ kbd {
    Subtle so it doesn't compete with the dock CTA or the round card. */
 /* Compact column card — one header row (tag + term + nav controls +
    dex link) plus a body row. About half the vertical footprint of the
-   earlier 3-row layout so it doesn't dominate the chat / dock stack. */
+   earlier 3-row layout so it doesn't dominate the chat / dock stack.
+   margin-bottom keeps clear of the fixed-position dock so the two
+   don't visually fuse. */
 .waiting-panel {
-  margin: 10px 0 4px;
+  margin: 10px 0 18px;
   padding: 9px 12px 10px;
   background: var(--bg-elev);
   border: 1px solid var(--border);

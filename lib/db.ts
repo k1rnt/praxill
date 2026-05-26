@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { randomUUID } from "node:crypto";
 import { detectQuizResult, parseLatestQuiz } from "./parseQuiz";
-import { parseQuizMeta, type QuizTip } from "./quizMeta";
+import { parseQuizMeta, tipDedupKey, type QuizTip } from "./quizMeta";
 import { SKIP_PREFIX_RE } from "./skip";
 
 // Mirrors the regex used by /api/topics/[id]/answer to decide if a user
@@ -576,7 +576,7 @@ export function searchTips(query: string, limit = 50): TipSearchResult[] {
     const meta = parseQuizMeta(r.content);
     const tip: QuizTip | null = meta?.tip ?? null;
     if (!tip) continue;
-    const key = r.topic_id + "|" + tip.term.toLowerCase();
+    const key = r.topic_id + "|" + tipDedupKey(tip.term);
     if (seen.has(key)) continue;
     seen.add(key);
     const termHit = tip.term.toLowerCase().includes(ql);

@@ -33,6 +33,10 @@ export type ExtractedSubject = {
   sizeBytes: number;
 };
 
+const TRUNCATE_SUFFIX =
+  "\n\n（…ここから先は文字数上限のため省略されています。続きが必要な場合は別 topic に分けるか、要約版を使ってください）";
+const TRUNCATE_SUFFIX_BYTES = Buffer.byteLength(TRUNCATE_SUFFIX, "utf8");
+
 function clamp(text: string): ExtractedSubject {
   // Strip NUL bytes (which sometimes sneak in from PDFs) and trim ends.
   // ASCII spaces are preserved because they're meaningful for English.
@@ -56,14 +60,17 @@ function clamp(text: string): ExtractedSubject {
       sizeBytes: buf.byteLength,
     };
   }
-  // Cut at a codepoint boundary close to MAX_BYTES.
-  let cut = MAX_BYTES;
+  // Reserve room for the truncation suffix so the final returned text
+  // stays under MAX_BYTES. Otherwise downstream consumers (e.g. the
+  // summarize API, which also caps at 1 MB) reject the result.
+  let cut = MAX_BYTES - TRUNCATE_SUFFIX_BYTES;
+  if (cut < 0) cut = 0;
+  // Walk back to a codepoint boundary so we don't slice a multi-byte
+  // UTF-8 sequence in half.
   while (cut > 0 && (buf[cut] & 0xc0) === 0x80) cut -= 1;
   const head = buf.subarray(0, cut).toString("utf8");
   return {
-    text:
-      head +
-      "\n\n（…ここから先は文字数上限のため省略されています。続きが必要な場合は別 topic に分けるか、要約版を使ってください）",
+    text: head + TRUNCATE_SUFFIX,
     truncated: true,
     large: true,
     empty: false,

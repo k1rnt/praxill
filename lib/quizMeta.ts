@@ -75,6 +75,16 @@ export function parseQuizMeta(text: string): QuizMeta | null {
   };
 }
 
+/**
+ * Normalised key for tip dedupe. Used by every collection point so a
+ * term the Trainer re-emits with different casing or surrounding
+ * whitespace ("LDAP " vs "ldap" vs " LDAP") collapses to one entry in
+ * the column panel, the dex overlay, and search results.
+ */
+export function tipDedupKey(term: string): string {
+  return term.trim().toLowerCase();
+}
+
 export function stripQuizMeta(text: string): string {
   if (!text) return text;
   // Strip the block plus any leading whitespace so we don't leave a
