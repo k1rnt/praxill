@@ -187,8 +187,23 @@ async function runCodexInBackground(
   // quiz manually. Lock is released either way at the end.
   try {
     // Hidden user message records the trigger in the transcript so the
-    // history reads coherently if we ever rehydrate.
-    addMessage(topicId, "user", CALL2_USER_TRIGGER, true);
+    // history reads coherently if we ever rehydrate. Write it under the
+    // lock — if the topic was deleted/imported between Call 1 and now,
+    // we don't want to leave an orphan trigger in the DB.
+    const triggerWrote = withCodexLock(
+      topicId,
+      lockId,
+      () => {
+        addMessage(topicId, "user", CALL2_USER_TRIGGER, true);
+      },
+      { release: false },
+    );
+    if (!triggerWrote) {
+      console.warn(
+        `[answer] codex lock lost before call 2 trigger for topic ${topicId}; skipping`,
+      );
+      return;
+    }
     const call2Prompt = CALL2_USER_TRIGGER + CALL2_DIRECTIVE;
     const tid = threadIdAfterCall1;
     if (!tid) {

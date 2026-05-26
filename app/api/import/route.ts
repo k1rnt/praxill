@@ -50,6 +50,21 @@ function validateTopic(x: unknown, idx: number): Topic | string {
     return `topics[${idx}].created_at must be a string`;
   if (typeof t.updated_at !== "string")
     return `topics[${idx}].updated_at must be a string`;
+  // subject_raw is the v2-introduced optional column. Allow string |
+  // null | undefined, but bound the size at 10 MB to mirror the topic
+  // POST validation — a broken backup with a multi-GB subject_raw
+  // would otherwise drag down the import transaction.
+  if (
+    t.subject_raw !== null &&
+    t.subject_raw !== undefined &&
+    typeof t.subject_raw !== "string"
+  )
+    return `topics[${idx}].subject_raw must be string, null, or undefined`;
+  if (
+    typeof t.subject_raw === "string" &&
+    Buffer.byteLength(t.subject_raw, "utf8") > 10 * 1024 * 1024
+  )
+    return `topics[${idx}].subject_raw exceeds 10 MB`;
   return t as unknown as Topic;
 }
 

@@ -80,6 +80,10 @@ export default function NewTopicForm() {
         return;
       }
       setSubject(data.text);
+      // Fresh upload → drop any summarize-state stashed from a previous
+      // file so we don't ship a new outline against an old subject_raw.
+      setSubjectRaw(null);
+      setSummary(null);
       setExtracted({
         fileName: data.fileName ?? file.name,
         sizeBytes: data.sizeBytes ?? file.size,
