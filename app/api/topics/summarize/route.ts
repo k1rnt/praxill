@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 // Summarising a full course PDF can take several minutes at high
 // reasoning effort. Same upper bound as the extract endpoint so the
 // server-side cost of one "import" stays bounded.
-export const maxDuration = 300;
+export const maxDuration = 480; // 8 min — creation calls run at xhigh reasoning and can stretch past 5 min on long inputs
 
 // Match the extract route's text ceiling — anything bigger should have
 // been clamped before it reached us, but defense in depth.

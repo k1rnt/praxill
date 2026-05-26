@@ -249,15 +249,13 @@ type Letter = (typeof LETTERS)[number];
  * Lightweight inline-markdown renderer for short text where pulling in
  * ReactMarkdown would be overkill (quiz scenarios, option labels —
  * always one short paragraph). Handles single-backtick `inline code`
- * by wrapping it in <code>; everything else is rendered as-is.
- *
- * Escaped backticks ("\\`") are left alone so the rare case of a
- * literal backtick still works.
+ * by wrapping it in <code>; everything else is rendered as-is. No
+ * special handling for escaped backticks (\\`code\\`) since they
+ * don't appear in Trainer-generated quiz text in practice; a literal
+ * backslash before the marker is kept as plain text.
  */
 function renderInline(text: string): React.ReactNode[] {
   const out: React.ReactNode[] = [];
-  // Match `…` greedily-but-shortest. Negative lookbehind for backslash
-  // would be cleaner but Safari support is fine in modern versions.
   const re = /`([^`\n]+)`/g;
   let lastIndex = 0;
   let m: RegExpExecArray | null;

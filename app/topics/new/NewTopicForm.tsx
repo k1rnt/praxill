@@ -118,16 +118,14 @@ export default function NewTopicForm() {
     setSummarizedAt(Date.now());
     setError(null);
     const original = subject;
-    let reasoning: "medium" | "high" | undefined;
-    try {
-      const stored = localStorage.getItem("reasoning");
-      if (stored === "medium" || stored === "high") reasoning = stored;
-    } catch {}
+    // The summarize route hardcodes xhigh reasoning regardless of the
+    // user's "fast mode" preference (creation-time call, one-shot,
+    // anchors every subsequent quiz). No reasoning param sent.
     try {
       const res = await fetch("/api/topics/summarize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: original, goal, reasoning }),
+        body: JSON.stringify({ text: original, goal }),
       });
       const data = (await res.json()) as {
         outline?: string;

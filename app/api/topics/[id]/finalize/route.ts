@@ -16,7 +16,7 @@ import { parseKnowledgeMap } from "@/lib/parseKnowledgeMap";
 import { badRequest, readJsonObject, sanitizeCodexError } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 480; // 8 min — creation calls run at xhigh reasoning and can stretch past 5 min on long inputs
 
 export async function POST(
   req: NextRequest,

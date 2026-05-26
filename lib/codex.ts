@@ -21,9 +21,12 @@ const REASONING = process.env.CODEX_REASONING || "high";
 export const CREATION_REASONING = "xhigh";
 // Guard against CODEX_TIMEOUT_MS="abc" — Number(...) → NaN and
 // setTimeout(NaN) fires immediately, which would 500 every codex call.
+// Default bumped to 8 min: creation-time calls run at xhigh reasoning
+// on potentially 1 MB of source material, which can occasionally
+// stretch past 5 min. Per-answer turns rarely come close to this.
 const TIMEOUT_MS = (() => {
   const raw = Number(process.env.CODEX_TIMEOUT_MS);
-  return Number.isFinite(raw) && raw > 0 ? raw : 5 * 60 * 1000;
+  return Number.isFinite(raw) && raw > 0 ? raw : 8 * 60 * 1000;
 })();
 
 export type CodexResult = {

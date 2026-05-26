@@ -16,7 +16,7 @@ import { stripLatestQuiz } from "@/lib/parseQuiz";
 import { sanitizeCodexError } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 480; // 8 min — creation calls run at xhigh reasoning and can stretch past 5 min on long inputs
 
 /**
  * Re-run draft generation for a topic whose initial /api/topics call failed
