@@ -87,6 +87,21 @@ const SKIP_DIRECTIVE =
   "正解の選択肢を明示し、その理由と他の選択肢が誤りである理由を、前提知識から順を追って丁寧に解説してください。" +
   "降参の扱いとして今回のスコアは 0/1 で記録されます。）";
 
+// Freeform-request directive: appended when the user message is NOT a
+// graded quiz answer (no "回答: X" shape, no skip). Examples are the
+// quick-reply chips "次の問題をください", "もっと簡単にして", "もっと難し
+// くして", "分からない、図解で説明して", or any custom question. We
+// don't want the Phase 2 split here — the user isn't waiting for an
+// explanation of a prior answer, they want the Trainer to act on their
+// request directly. The directive just reminds the Trainer that any
+// quiz it does emit must include the meta block.
+const FREEFORM_META_REMINDER =
+  "\n\n（システム注: 上の入力は採点対象の4択回答ではなく、自由なリクエストです。" +
+  "リクエストに沿って応答してください。" +
+  "もし応答の中で新しい4択問題を出題する場合は、必ず本文末尾に " +
+  "<!-- praxill-meta\ncorrect: {正解の選択肢 A|B|C|D}\ntip: {用語} | {1〜2文の標準語の用語解説}\n--> " +
+  "ブロックを 1 つ含めてください。出題しない応答ではメタは不要です。）";
+
 async function runCodexInBackground(
   topicId: string,
   threadId: string | null,
@@ -97,6 +112,20 @@ async function runCodexInBackground(
   reasoning?: string,
 ) {
   const localInstanceId = getLocalInstanceId();
+  // Freeform request path: skip the Phase 2 split entirely. The user
+  // didn't answer a quiz, so there's nothing to grade and no need for
+  // a separate "next quiz" call. One codex turn handles it.
+  const isFreeform = !shouldScore && !isSkip;
+  if (isFreeform) {
+    return runFreeformInBackground(
+      topicId,
+      threadId,
+      content,
+      lockId,
+      reasoning,
+      localInstanceId,
+    );
+  }
 
   // === Call 1: grade + explain (no new quiz) ===========================
   const call1Prompt = isSkip
@@ -246,6 +275,85 @@ async function runCodexInBackground(
         "assistant",
         `__codex error__\n\n次の問題の生成に失敗しました: ${msg}`,
       );
+    });
+  }
+}
+
+/**
+ * Single-call path for non-graded, non-skip requests (the FreeComposer
+ * "次の問題をください", "もっと簡単にして" etc.). No Phase 2 split — the
+ * user didn't answer a quiz so there's no grading + explanation phase
+ * separately from "do the next thing the user asked for". One codex
+ * turn handles whatever the request was. The Trainer's standing rules
+ * (from buildFinalizePrompt) already cover how to handle requests like
+ * these; the FREEFORM_META_REMINDER just reminds it to attach quiz
+ * meta if it does emit a quiz.
+ */
+async function runFreeformInBackground(
+  topicId: string,
+  threadId: string | null,
+  content: string,
+  lockId: string,
+  reasoning: string | undefined,
+  localInstanceId: string,
+) {
+  const codexPrompt = content + FREEFORM_META_REMINDER;
+  try {
+    let result;
+    let rehydrated = false;
+    if (threadId !== null) {
+      try {
+        result = await codexResume(threadId, codexPrompt, reasoning, lockId);
+      } catch (resumeErr) {
+        console.warn(
+          `[answer:freeform] codexResume failed for topic ${topicId}; rehydrating`,
+          resumeErr,
+        );
+        const rehydrationPrompt = buildRehydrationFromDb(topicId);
+        if (!rehydrationPrompt) throw resumeErr;
+        result = await codexStart(
+          rehydrationPrompt + FREEFORM_META_REMINDER,
+          reasoning,
+          lockId,
+        );
+        rehydrated = true;
+      }
+    } else {
+      const rehydrationPrompt = buildRehydrationFromDb(topicId);
+      if (!rehydrationPrompt) throw new Error("topic not found");
+      result = await codexStart(
+        rehydrationPrompt + FREEFORM_META_REMINDER,
+        reasoning,
+        lockId,
+      );
+      rehydrated = true;
+    }
+    const wrote = withCodexLock(topicId, lockId, (topic) => {
+      addMessage(topicId, "assistant", result.text);
+      const progress = parseAssistantProgress(result.text, false);
+      const phaseUpdate =
+        progress.currentPhase !== undefined
+          ? Math.max(topic.current_phase, progress.currentPhase)
+          : undefined;
+      const patch: Parameters<typeof updateTopic>[1] = {
+        thread_id: result.threadId ?? topic.thread_id ?? undefined,
+        current_phase: phaseUpdate,
+      };
+      if (rehydrated && result.threadId) {
+        patch.thread_owner_instance_id = localInstanceId;
+      }
+      // No scoring on freeform — user didn't answer a quiz.
+      updateTopic(topicId, patch);
+    });
+    if (!wrote) {
+      console.warn(
+        `[answer:freeform] codex lock lost for topic ${topicId}; dropping result`,
+      );
+    }
+  } catch (err) {
+    const msg = sanitizeCodexError(err);
+    withCodexLock(topicId, lockId, () => {
+      addMessage(topicId, "assistant", `__codex error__\n\n${msg}`);
     });
   }
 }

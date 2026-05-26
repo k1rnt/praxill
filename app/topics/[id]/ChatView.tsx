@@ -232,13 +232,17 @@ function summarizeRound(round: Round): {
   }
 
   const oneLine = round.user.content.replace(/\s+/g, " ").trim();
+  // Freeform rounds (free-text questions like "次の問題をください",
+  // "もう一度説明して") aren't graded exchanges — they shouldn't carry
+  // a 正解/不正解 chip even if the Trainer's reply happens to mention
+  // "正解" in passing.
   return {
     qLabel: "メモ",
     qLabelKind: "freeform",
     title: oneLine.length > 60 ? oneLine.slice(0, 60) + "…" : oneLine,
     sub: "ノート",
-    result,
-    predicted,
+    result: null,
+    predicted: false,
   };
 }
 
