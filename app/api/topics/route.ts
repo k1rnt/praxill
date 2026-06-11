@@ -10,7 +10,11 @@ import {
   updateTopic,
   withCodexLock,
 } from "@/lib/db";
-import { CREATION_REASONING, codexStart } from "@/lib/codex";
+import {
+  CODEX_TURN_INPUT_LIMIT_BYTES,
+  CREATION_REASONING,
+  codexStart,
+} from "@/lib/codex";
 import { buildDraftPrompt } from "@/lib/prompt";
 import { parseAssistantProgress } from "@/lib/progress";
 import { stripLatestQuiz } from "@/lib/parseQuiz";
@@ -75,15 +79,15 @@ export async function POST(req: Request) {
   if (!title || !subject || !goal) {
     return badRequest("title, subject, goal は必須です");
   }
-  // Subject is sent to codex in buildDraftPrompt and stays in scope for
-  // every rehydration. Codex (GPT-5.5) handles large prompts, but past
-  // the model's context cliff every later turn pays for it. 10 MB
-  // covers the extract path (8 MB cap) plus a bit of headroom for
-  // manual paste, with hard rejection beyond.
-  const SUBJECT_MAX_BYTES = 10 * 1024 * 1024;
-  if (Buffer.byteLength(subject, "utf8") > SUBJECT_MAX_BYTES) {
+  // Subject is sent verbatim to codex via buildDraftPrompt on this
+  // POST and again in every rehydration. Codex CLI rejects any single
+  // turn whose total input exceeds ~1 MB, so the subject ceiling is
+  // codex's per-turn limit minus prompt-template overhead. Larger
+  // material has to go through /summarize first (which chunks).
+  if (Buffer.byteLength(subject, "utf8") > CODEX_TURN_INPUT_LIMIT_BYTES) {
     return badRequest(
-      `題材が長すぎます (上限 ${SUBJECT_MAX_BYTES / 1024 / 1024} MB)。要点に絞るか、別 topic に分けてください。`,
+      "題材本文が Codex 1 ターンの上限を超えています。" +
+        "新規作成画面の「要約して使う」ボタンで要約してから送信してください。",
     );
   }
   // subject_raw is just stored — don't bound it as tightly. 10 MB is a

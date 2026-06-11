@@ -19,6 +19,16 @@ const REASONING = process.env.CODEX_REASONING || "high";
  * setting because they happen 50-100× per topic.
  */
 export const CREATION_REASONING = "xhigh";
+
+/**
+ * Hard ceiling that codex CLI imposes on a single turn's input
+ * (prompt + stdin). Anything past this returns
+ *   "Input exceeds the maximum length of 1048576 characters."
+ * before the model is even reached. We pick a cap a comfortable
+ * margin below the literal limit so prompt overhead (system
+ * directives, the wrapping markdown template) doesn't push us over.
+ */
+export const CODEX_TURN_INPUT_LIMIT_BYTES = 900 * 1024;
 // Guard against CODEX_TIMEOUT_MS="abc" — Number(...) → NaN and
 // setTimeout(NaN) fires immediately, which would 500 every codex call.
 // Default bumped to 8 min: creation-time calls run at xhigh reasoning
