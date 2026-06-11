@@ -6,18 +6,20 @@
  * subject.
  */
 
-// Upper bound on the extracted text we hand back to the client. Sized
-// to fit comfortably inside the model's context budget once it's wrapped
-// in the draft prompt, with headroom for the goal and the rules section.
-// 1 MB ≈ 250-500K tokens depending on script density (CJK is denser),
-// so this still leaves room before hitting GPT-5.5's context ceiling.
-// Materials longer than this (e.g. a full OSCP PDF) need to be chunked
-// by the user or compressed to an outline (planned follow-up).
-const MAX_BYTES = 1024 * 1024;
+// Upper bound on the extracted text we hand back to the client. 8 MB
+// is sized to cover the cert-prep PDFs this project's main use case
+// targets (OSCP ~3-5 MB text, OSEP ~3 MB, OSWE ~2 MB once extracted),
+// with headroom for HackTricks-scale Markdown sections too. Codex
+// (GPT-5.5, ~1 M token context) can ingest 4-5 MB of mixed English/
+// Japanese in a single draft call; anything larger should really go
+// through the summarize step before driving Trainer prompts.
+const MAX_BYTES = 8 * 1024 * 1024;
 
 // Soft cap that triggers a "this might be slow / expensive" warning in
-// the UI but still passes through. Aimed at "a long article" territory.
-const SOFT_WARN_BYTES = 200 * 1024;
+// the UI but still passes through. Sized so that a single book chapter
+// passes silently, but a full chapter set surfaces the "consider
+// summarising" hint before the user clicks submit.
+const SOFT_WARN_BYTES = 500 * 1024;
 
 export type ExtractedSubject = {
   text: string;

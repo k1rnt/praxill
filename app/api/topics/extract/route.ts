@@ -8,12 +8,13 @@ export const dynamic = "force-dynamic";
 // 504 mid-parse.
 export const maxDuration = 300;
 
-// 50 MB upload ceiling — sized for typical certification course PDFs.
-// Was 100 MB but file.arrayBuffer() loads the entire upload into
-// memory, so two concurrent 100 MB extractions could OOM the server.
-// 50 MB covers the realistic cert-PDF range (OSCP, CRTP are usually
-// 20-40 MB) while keeping the memory footprint bounded per request.
-const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+// 100 MB upload ceiling — covers the full Offensive Security course PDF
+// range (OSCP ~50 MB, OSEP ~36 MB, OSWE ~29 MB) plus headroom for
+// HackTricks-scale Markdown bundles. The single-flight extract
+// semaphore below keeps memory bounded to one upload at a time, so
+// raising the ceiling is safe even though file.arrayBuffer() pulls the
+// whole buffer in.
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 // Single-flight semaphore for extraction. The extract path keeps the
 // whole file resident in memory (arrayBuffer + per-page text), and the

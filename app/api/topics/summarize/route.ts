@@ -13,7 +13,7 @@ export const maxDuration = 480; // 8 min — creation calls run at xhigh reasoni
 
 // Match the extract route's text ceiling — anything bigger should have
 // been clamped before it reached us, but defense in depth.
-const MAX_INPUT_BYTES = 1024 * 1024;
+const MAX_INPUT_BYTES = 8 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
   const body = await readJsonObject(req);

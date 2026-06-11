@@ -271,7 +271,7 @@ export default function NewTopicForm() {
             </button>
           )}
           <span className="form__hint">
-            Markdown / HTML / PDF を読み込んでテキスト化します(ファイル上限 50 MB、抽出テキスト上限 1 MB)
+            Markdown / HTML / PDF を読み込んでテキスト化します(ファイル上限 100 MB、抽出テキスト上限 8 MB)
           </span>
         </div>
         {summarizing && (
@@ -299,7 +299,7 @@ export default function NewTopicForm() {
               <div className="form__extracted-warn">
                 <AlertTriangle size={14} strokeWidth={2.2} />
                 <span>
-                  文字数上限 (1 MB) を超えたため末尾を省略しました。
+                  文字数上限 (8 MB) を超えたため末尾を省略しました。
                   続きが必要な部分は別 topic に分けるか、本文を編集してから送信してください。
                 </span>
               </div>
