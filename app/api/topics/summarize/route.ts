@@ -8,6 +8,11 @@ import {
   codexStart,
 } from "@/lib/codex";
 import {
+  createSummarizeJob,
+  incrementSummarizeJobChunk,
+  updateSummarizeJob,
+} from "@/lib/db";
+import {
   buildMergeOutlinesPrompt,
   buildSummarizeChunkPrompt,
   buildSummarizePrompt,
@@ -16,18 +21,91 @@ import { chunkText } from "@/lib/textChunk";
 import { badRequest, readJsonObject, sanitizeCodexError } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
-// Summarising a full course PDF can take several minutes at xhigh
-// reasoning, and chunked-summarize for cert-scale PDFs runs N+1 codex
-// turns; bump generously.
-export const maxDuration = 480;
+// The POST itself returns immediately; this only needs to cover the
+// initial DB write + background-task spawn.
+export const maxDuration = 30;
 
-// Match the extract route's text ceiling — anything bigger should have
-// been clamped before it reached us, but defense in depth.
 const MAX_INPUT_BYTES = 8 * 1024 * 1024;
-
-// Conservative chunk size — leaves headroom under codex's per-turn
-// input limit for the wrapping prompt template (which is a few KB).
 const CHUNK_SIZE_BYTES = Math.floor(CODEX_TURN_INPUT_LIMIT_BYTES * 0.92);
+
+/**
+ * Background summarization. Runs detached from the HTTP request so the
+ * user can close the tab during the 5-10 minute wall-clock and come
+ * back to find the outline waiting. Writes progress + final result
+ * into `summarize_jobs`; the client polls GET to follow along.
+ */
+async function runSummarizeJob(
+  jobId: string,
+  text: string,
+  goal: string,
+): Promise<void> {
+  const reasoning = CREATION_REASONING;
+  try {
+    const textBytes = Buffer.byteLength(text, "utf8");
+    let outline: string;
+
+    if (textBytes <= CHUNK_SIZE_BYTES) {
+      // Hot path: single codex call covers the input.
+      updateSummarizeJob(jobId, { total_chunks: 1 });
+      const result = await codexStart(
+        buildSummarizePrompt(text, goal),
+        reasoning,
+        jobId, // one-shot path can reuse jobId as the lock — no parallel siblings
+      );
+      outline = result.text.trim();
+      incrementSummarizeJobChunk(jobId);
+    } else {
+      // Chunked path: N parallel partials + 1 merge.
+      const chunks = chunkText(text, CHUNK_SIZE_BYTES);
+      updateSummarizeJob(jobId, { total_chunks: chunks.length });
+      console.log(
+        `[summarize-job ${jobId}] chunked ${(textBytes / 1024).toFixed(0)} KB into ${chunks.length} parts`,
+      );
+      const partials = await Promise.all(
+        chunks.map(async (chunk, i) => {
+          const r = await codexStart(
+            buildSummarizeChunkPrompt(chunk, goal, i + 1, chunks.length),
+            reasoning,
+            `${jobId}-c${i}`,
+          );
+          incrementSummarizeJobChunk(jobId);
+          return r.text.trim();
+        }),
+      );
+      if (partials.every((p) => !p)) {
+        updateSummarizeJob(jobId, {
+          status: "error",
+          error_message:
+            "要約のすべての部分で空応答でした。資料を確認してもう一度お試しください。",
+        });
+        return;
+      }
+      const merged = await codexStart(
+        buildMergeOutlinesPrompt(
+          partials.filter((p) => p.length > 0),
+          goal,
+        ),
+        reasoning,
+        `${jobId}-merge`,
+      );
+      outline = merged.text.trim();
+    }
+
+    if (!outline) {
+      updateSummarizeJob(jobId, {
+        status: "error",
+        error_message:
+          "要約結果が空でした。資料を確認してもう一度お試しください。",
+      });
+      return;
+    }
+    updateSummarizeJob(jobId, { status: "done", outline });
+  } catch (err) {
+    const msg = sanitizeCodexError(err);
+    console.error(`[summarize-job ${jobId}] failed:`, err);
+    updateSummarizeJob(jobId, { status: "error", error_message: msg });
+  }
+}
 
 export async function POST(req: NextRequest) {
   const body = await readJsonObject(req);
@@ -44,92 +122,25 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Summarize is a one-shot creation step — always run at the higher
-  // reasoning effort regardless of the client's per-quiz preference,
-  // because this output anchors every subsequent quiz turn.
-  const reasoning = CREATION_REASONING;
+  const jobId = randomUUID();
+  createSummarizeJob({ id: jobId, goal, rawText: text });
 
-  // We register every codex child we spawn so an aborted client (tab
-  // close during a 5-min summarize) tears them all down — no zombie
-  // chunk processes left eating tokens.
-  const lockIds: string[] = [];
-  const onAbort = () => {
-    for (const lid of lockIds) cancelCodexCall(lid);
-  };
-  req.signal.addEventListener("abort", onAbort);
+  // Fire-and-forget. .catch is just a safety net — runSummarizeJob
+  // itself writes errors into the job row.
+  runSummarizeJob(jobId, text, goal).catch((err) => {
+    console.error(`[summarize-job ${jobId}] background unhandled:`, err);
+  });
 
-  try {
-    const textBytes = Buffer.byteLength(text, "utf8");
-    let outline: string;
+  return NextResponse.json({ jobId }, { status: 202 });
+}
 
-    if (textBytes <= CHUNK_SIZE_BYTES) {
-      // Hot path: input fits in one codex turn. Single summarize call.
-      const lockId = randomUUID();
-      lockIds.push(lockId);
-      const result = await codexStart(
-        buildSummarizePrompt(text, goal),
-        reasoning,
-        lockId,
-      );
-      outline = result.text.trim();
-    } else {
-      // Cert-scale path: chunk → parallel per-chunk summarize → merge.
-      const chunks = chunkText(text, CHUNK_SIZE_BYTES);
-      console.log(
-        `[summarize] chunked ${(textBytes / 1024).toFixed(0)} KB into ${chunks.length} parts`,
-      );
-      const partials = await Promise.all(
-        chunks.map(async (chunk, i) => {
-          const lid = randomUUID();
-          lockIds.push(lid);
-          const r = await codexStart(
-            buildSummarizeChunkPrompt(chunk, goal, i + 1, chunks.length),
-            reasoning,
-            lid,
-          );
-          return r.text.trim();
-        }),
-      );
-      // Sanity: if every partial is empty, surface a meaningful error
-      // before paying for a merge call that has nothing to merge.
-      if (partials.every((p) => !p)) {
-        return NextResponse.json(
-          {
-            error:
-              "要約のすべての部分で空応答でした。資料を確認してもう一度お試しください。",
-          },
-          { status: 502 },
-        );
-      }
-      const mergeLockId = randomUUID();
-      lockIds.push(mergeLockId);
-      const merged = await codexStart(
-        buildMergeOutlinesPrompt(
-          partials.filter((p) => p.length > 0),
-          goal,
-        ),
-        reasoning,
-        mergeLockId,
-      );
-      outline = merged.text.trim();
-    }
-
-    if (!outline) {
-      return NextResponse.json(
-        { error: "要約結果が空でした。資料を確認してもう一度お試しください。" },
-        { status: 502 },
-      );
-    }
-    return NextResponse.json({
-      outline,
-      outlineBytes: Buffer.byteLength(outline, "utf8"),
-      rawBytes: Buffer.byteLength(text, "utf8"),
-    });
-  } catch (err) {
-    const msg = sanitizeCodexError(err);
-    console.error("[summarize] failed:", err);
-    return NextResponse.json({ error: msg }, { status: 500 });
-  } finally {
-    req.signal.removeEventListener("abort", onAbort);
-  }
+// Cancellation helper used by the per-id DELETE route. Kept here so the
+// route file can just import the cancel logic.
+export function cancelSummarizeJobChildren(jobId: string): void {
+  // Best-effort: try the single-call lock id and a generous range of
+  // chunk + merge ids. We don't know N at cancel time without reading
+  // the row, so this scans up to a reasonable cap.
+  cancelCodexCall(jobId);
+  cancelCodexCall(`${jobId}-merge`);
+  for (let i = 0; i < 64; i += 1) cancelCodexCall(`${jobId}-c${i}`);
 }

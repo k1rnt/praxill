@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -40,10 +40,12 @@ export default function NewTopicForm() {
   const [extracting, setExtracting] = useState(false);
   const [extracted, setExtracted] = useState<ExtractedFile | null>(null);
 
-  // Summarize-large-resource flow. When the user runs the summarize
-  // step, the textarea content becomes the codex-produced outline and
-  // we stash the original full text in subjectRaw so it's sent along
-  // to /api/topics for archival.
+  // Summarize-large-resource flow. The summarize step runs server-side
+  // in the background; on the client we only POST to kick it off and
+  // then poll until the job lands. State below tracks the polling loop
+  // and the final result; localStorage persistence lets the user close
+  // the tab during a 5-10 min cert-PDF summarize and come back to the
+  // outline waiting.
   const [summarizing, setSummarizing] = useState(false);
   const [summarizedAt, setSummarizedAt] = useState<number | null>(null);
   const [summary, setSummary] = useState<{
@@ -51,6 +53,13 @@ export default function NewTopicForm() {
     outlineBytes: number;
   } | null>(null);
   const [subjectRaw, setSubjectRaw] = useState<string | null>(null);
+  const [summarizeJobId, setSummarizeJobId] = useState<string | null>(null);
+  const [summarizeProgress, setSummarizeProgress] = useState<{
+    completed: number;
+    total: number | null;
+  } | null>(null);
+
+  const SUMMARIZE_JOB_STORAGE_KEY = "praxill:summarize_job_id";
 
   async function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -116,40 +125,165 @@ export default function NewTopicForm() {
     }
     setSummarizing(true);
     setSummarizedAt(Date.now());
+    setSummarizeProgress(null);
     setError(null);
     const original = subject;
-    // The summarize route hardcodes xhigh reasoning regardless of the
-    // user's "fast mode" preference (creation-time call, one-shot,
-    // anchors every subsequent quiz). No reasoning param sent.
     try {
       const res = await fetch("/api/topics/summarize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: original, goal }),
       });
-      const data = (await res.json()) as {
-        outline?: string;
-        outlineBytes?: number;
-        rawBytes?: number;
-        error?: string;
-      };
-      if (!res.ok || !data.outline) {
-        setError(data.error ?? "要約に失敗しました");
+      const data = (await res.json()) as { jobId?: string; error?: string };
+      if (!res.ok || !data.jobId) {
+        setError(data.error ?? "要約ジョブの開始に失敗しました");
         setSummarizing(false);
         return;
       }
-      setSubject(data.outline);
-      setSubjectRaw(original);
-      setSummary({
-        rawBytes: data.rawBytes ?? original.length,
-        outlineBytes: data.outlineBytes ?? data.outline.length,
-      });
+      try {
+        localStorage.setItem(SUMMARIZE_JOB_STORAGE_KEY, data.jobId);
+      } catch {
+        // localStorage may be unavailable (private mode); polling still
+        // works for this session but won't survive a tab reload.
+      }
+      setSummarizeJobId(data.jobId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "ネットワークエラー");
-    } finally {
       setSummarizing(false);
     }
   }
+
+  function clearSummarizeJob() {
+    try {
+      localStorage.removeItem(SUMMARIZE_JOB_STORAGE_KEY);
+    } catch {
+      // ignore
+    }
+    setSummarizeJobId(null);
+    setSummarizing(false);
+    setSummarizeProgress(null);
+  }
+
+  async function cancelSummarize() {
+    if (!summarizeJobId) return;
+    const id = summarizeJobId;
+    clearSummarizeJob();
+    try {
+      await fetch(`/api/topics/summarize/${id}`, { method: "DELETE" });
+    } catch {
+      // best-effort cancel; the orphan job will get cleaned up at next
+      // server restart by the boot-time recovery.
+    }
+  }
+
+  // Polling loop: while a job id is set, GET its status every 4s until
+  // it lands. When status flips to "done" we pull the outline and
+  // (separately) the raw text into form state. "error" surfaces the
+  // server message. Closing the tab leaves the job running server-side
+  // — the resume effect below picks it back up on next mount.
+  useEffect(() => {
+    if (!summarizeJobId) return;
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch(
+          `/api/topics/summarize/${summarizeJobId}`,
+        );
+        if (cancelled) return;
+        if (res.status === 404) {
+          // Job was deleted (cancelled from another tab, or server
+          // recovery cleared it). Drop our tracking.
+          clearSummarizeJob();
+          return;
+        }
+        if (!res.ok) {
+          // Network blip — keep polling.
+          return;
+        }
+        const data = (await res.json()) as {
+          status?: "pending" | "done" | "error";
+          outline?: string | null;
+          error?: string | null;
+          totalChunks?: number | null;
+          completedChunks?: number;
+          outlineBytes?: number | null;
+          rawBytes?: number;
+        };
+        if (cancelled) return;
+        setSummarizeProgress({
+          completed: data.completedChunks ?? 0,
+          total: data.totalChunks ?? null,
+        });
+        if (data.status === "done" && data.outline) {
+          // Pull raw text once for the "元の本文に戻す" button.
+          let rawText = subject;
+          try {
+            const rawRes = await fetch(
+              `/api/topics/summarize/${summarizeJobId}/raw`,
+            );
+            if (rawRes.ok) {
+              const rawData = (await rawRes.json()) as { rawText?: string };
+              if (typeof rawData.rawText === "string") {
+                rawText = rawData.rawText;
+              }
+            }
+          } catch {
+            // fall back to whatever's currently in subject
+          }
+          if (cancelled) return;
+          setSubject(data.outline);
+          setSubjectRaw(rawText);
+          setSummary({
+            rawBytes: data.rawBytes ?? rawText.length,
+            outlineBytes:
+              data.outlineBytes ??
+              new TextEncoder().encode(data.outline).byteLength,
+          });
+          // Clean up the server-side job row — we've consumed the
+          // result and don't need to poll it again.
+          fetch(`/api/topics/summarize/${summarizeJobId}`, {
+            method: "DELETE",
+          }).catch(() => undefined);
+          clearSummarizeJob();
+        } else if (data.status === "error") {
+          setError(data.error ?? "要約に失敗しました");
+          fetch(`/api/topics/summarize/${summarizeJobId}`, {
+            method: "DELETE",
+          }).catch(() => undefined);
+          clearSummarizeJob();
+        }
+      } catch {
+        // Network blip — silently retry next tick.
+      }
+    };
+    // Poll once immediately so the first paint shows real progress,
+    // then steady cadence.
+    poll();
+    const interval = window.setInterval(poll, 4000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summarizeJobId]);
+
+  // Resume effect: on mount, look for a job id left in localStorage
+  // (the user closed the tab while a summarize was running). If found,
+  // re-enter the polling loop without restarting the codex calls.
+  useEffect(() => {
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(SUMMARIZE_JOB_STORAGE_KEY);
+    } catch {
+      return;
+    }
+    if (!stored) return;
+    setSummarizeJobId(stored);
+    setSummarizing(true);
+    setSummarizedAt(Date.now());
+    // The polling effect (above) takes over from here.
+  }, []);
 
   function revertSummary() {
     if (!subjectRaw) return;
@@ -278,11 +412,33 @@ export default function NewTopicForm() {
           <div className="form__summarize-progress">
             <WaitProgress
               active={summarizing}
-              label="アウトラインを生成中…"
-              expectedMs={150_000}
+              label={
+                summarizeProgress && summarizeProgress.total !== null
+                  ? `アウトラインを生成中… (${summarizeProgress.completed} / ${summarizeProgress.total} 完了)`
+                  : "アウトラインを生成中…"
+              }
+              expectedMs={
+                // Single-call path: ~2.5 min. Chunked path scales with
+                // the chunk count; rough estimate: 90s per chunk + 90s
+                // for the merge. Used only as the curve's tau, the bar
+                // never claims completion.
+                summarizeProgress?.total
+                  ? Math.max(150_000, summarizeProgress.total * 90_000 + 90_000)
+                  : 180_000
+              }
               startedAt={summarizedAt}
               variant="panel"
             />
+            <div className="form__summarize-progress-note">
+              タブを閉じても処理は続きます。完了次第このページで結果が反映されます。
+            </div>
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm form__summarize-cancel"
+              onClick={cancelSummarize}
+            >
+              中止する
+            </button>
           </div>
         )}
         {extracted && (

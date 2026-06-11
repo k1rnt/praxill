@@ -165,6 +165,48 @@ function init(db: Database.Database) {
   // went through the summarize flow.
   ensureColumn(db, "topics", "subject_raw", "TEXT");
 
+  // Background summarize jobs. The summarize step for cert-scale source
+  // material runs N parallel codex chunks + a merge call — 5-10 minutes
+  // wall-clock at xhigh reasoning. We can't make the user keep the tab
+  // open the whole time, so the POST returns immediately with a job id
+  // and the heavy work runs in the background, writing progress and
+  // (eventually) the final outline into this table. The client polls
+  // GET /api/topics/summarize/[id] until status flips off "pending".
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS summarize_jobs (
+      id TEXT PRIMARY KEY,
+      goal TEXT NOT NULL,
+      raw_text TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      outline TEXT,
+      error_message TEXT,
+      total_chunks INTEGER,
+      completed_chunks INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+
+  // Boot-time recovery: any summarize job left in 'pending' at start-up
+  // had its background task killed by the restart. Flip them to error
+  // so the client sees a clean failure instead of an infinite polling
+  // loop. ~15 minute cutoff so we don't accidentally clobber an active
+  // job that's been re-spawned within the same boot (rare but defensible).
+  const summarizeOrphans = db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM summarize_jobs WHERE status = 'pending'",
+    )
+    .get() as { n: number };
+  if (summarizeOrphans.n > 0) {
+    db.prepare(
+      `UPDATE summarize_jobs
+         SET status = 'error',
+             error_message = 'サーバー再起動により処理が中断されました。もう一度要約してください。',
+             updated_at = ?
+       WHERE status = 'pending'`,
+    ).run(new Date().toISOString());
+  }
+
   // Full-text search over message content. External-content mode + trigram
   // tokenizer — the trigram approach works well for CJK because it doesn't
   // depend on whitespace tokenization. Triggers keep the FTS index in lock
@@ -418,6 +460,92 @@ export function updateTopic(
 
 export function deleteTopic(id: string) {
   getDb().prepare("DELETE FROM topics WHERE id = ?").run(id);
+}
+
+export type SummarizeJobStatus = "pending" | "done" | "error";
+
+export type SummarizeJob = {
+  id: string;
+  goal: string;
+  raw_text: string;
+  status: SummarizeJobStatus;
+  outline: string | null;
+  error_message: string | null;
+  total_chunks: number | null;
+  completed_chunks: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export function createSummarizeJob(opts: {
+  id: string;
+  goal: string;
+  rawText: string;
+}): SummarizeJob {
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO summarize_jobs
+         (id, goal, raw_text, status, completed_chunks, created_at, updated_at)
+       VALUES (?, ?, ?, 'pending', 0, ?, ?)`,
+    )
+    .run(opts.id, opts.goal, opts.rawText, now, now);
+  return getSummarizeJob(opts.id)!;
+}
+
+export function getSummarizeJob(id: string): SummarizeJob | undefined {
+  return getDb()
+    .prepare("SELECT * FROM summarize_jobs WHERE id = ?")
+    .get(id) as SummarizeJob | undefined;
+}
+
+export function updateSummarizeJob(
+  id: string,
+  patch: Partial<
+    Pick<
+      SummarizeJob,
+      | "status"
+      | "outline"
+      | "error_message"
+      | "total_chunks"
+      | "completed_chunks"
+    >
+  >,
+): void {
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue;
+    fields.push(`${k} = ?`);
+    values.push(v);
+  }
+  if (fields.length === 0) return;
+  fields.push("updated_at = ?");
+  values.push(new Date().toISOString());
+  values.push(id);
+  getDb()
+    .prepare(`UPDATE summarize_jobs SET ${fields.join(", ")} WHERE id = ?`)
+    .run(...values);
+}
+
+/**
+ * Atomically bump `completed_chunks` by 1. Used by the background task
+ * after each chunk's codex call lands, so the client can show
+ * "N / total 完了" progress.
+ */
+export function incrementSummarizeJobChunk(id: string): void {
+  getDb()
+    .prepare(
+      `UPDATE summarize_jobs
+         SET completed_chunks = completed_chunks + 1,
+             updated_at = ?
+       WHERE id = ?`,
+    )
+    .run(new Date().toISOString(), id);
+}
+
+export function deleteSummarizeJob(id: string): void {
+  getDb().prepare("DELETE FROM summarize_jobs WHERE id = ?").run(id);
 }
 
 /**
