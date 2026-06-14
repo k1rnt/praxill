@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import Link from "next/link";
-import { Search, Settings as SettingsIcon } from "lucide-react";
+import { Network, Search, Settings as SettingsIcon } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import "./globals.css";
 
@@ -92,6 +92,13 @@ export default function RootLayout({
                   aria-label="検索"
                 >
                   <Search size={18} strokeWidth={2} />
+                </Link>
+                <Link
+                  className="btn btn--ghost btn--icon"
+                  href="/graph"
+                  aria-label="知識グラフ"
+                >
+                  <Network size={18} strokeWidth={2} />
                 </Link>
                 <Link
                   className="btn btn--ghost btn--icon"

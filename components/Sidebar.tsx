@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Search, Settings as SettingsIcon } from "lucide-react";
+import { Network, Plus, Search, Settings as SettingsIcon } from "lucide-react";
 import { listTopics } from "@/lib/db";
 import { SidebarTopicLink } from "./SidebarTopicLink";
 
@@ -53,6 +53,10 @@ export function Sidebar() {
         <Link href="/search" className="sidebar__nav">
           <Search size={16} strokeWidth={2} />
           検索
+        </Link>
+        <Link href="/graph" className="sidebar__nav">
+          <Network size={16} strokeWidth={2} />
+          知識グラフ
         </Link>
         <Link href="/settings" className="sidebar__nav">
           <SettingsIcon size={16} strokeWidth={2} />

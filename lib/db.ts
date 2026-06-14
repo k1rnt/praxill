@@ -207,6 +207,40 @@ function init(db: Database.Database) {
     ).run(new Date().toISOString());
   }
 
+  // Cross-topic knowledge graph. Edges connect either two Question nodes
+  // ((topic_id, message_id) — the assistant message that emitted the Q)
+  // or two Tip nodes (tip term, deduped lower-case). A row stores both
+  // endpoints inline because the alternative — a separate nodes table —
+  // would have to gain rows on-demand whenever a new (Q | tip) shows up
+  // anywhere in messages, and we'd still need the same composite keys.
+  // Indexed for both directions so neighborhood queries (`edges of this
+  // Q`) stay cheap regardless of which side the Q is on.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS graph_edges (
+      id TEXT PRIMARY KEY,
+      src_kind TEXT NOT NULL CHECK (src_kind IN ('question', 'tip')),
+      src_topic_id TEXT,
+      src_message_id INTEGER,
+      src_tip_term TEXT,
+      dst_kind TEXT NOT NULL CHECK (dst_kind IN ('question', 'tip')),
+      dst_topic_id TEXT,
+      dst_message_id INTEGER,
+      dst_tip_term TEXT,
+      relation_kind TEXT NOT NULL,
+      explanation TEXT NOT NULL,
+      weight REAL NOT NULL DEFAULT 0.5,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_graph_edges_src_q
+      ON graph_edges(src_topic_id, src_message_id);
+    CREATE INDEX IF NOT EXISTS idx_graph_edges_dst_q
+      ON graph_edges(dst_topic_id, dst_message_id);
+    CREATE INDEX IF NOT EXISTS idx_graph_edges_src_tip
+      ON graph_edges(src_tip_term);
+    CREATE INDEX IF NOT EXISTS idx_graph_edges_dst_tip
+      ON graph_edges(dst_tip_term);
+  `);
+
   // Full-text search over message content. External-content mode + trigram
   // tokenizer — the trigram approach works well for CJK because it doesn't
   // depend on whitespace tokenization. Triggers keep the FTS index in lock
@@ -546,6 +580,63 @@ export function incrementSummarizeJobChunk(id: string): void {
 
 export function deleteSummarizeJob(id: string): void {
   getDb().prepare("DELETE FROM summarize_jobs WHERE id = ?").run(id);
+}
+
+export type GraphNodeKind = "question" | "tip";
+
+export type GraphEdge = {
+  id: string;
+  src_kind: GraphNodeKind;
+  src_topic_id: string | null;
+  src_message_id: number | null;
+  src_tip_term: string | null;
+  dst_kind: GraphNodeKind;
+  dst_topic_id: string | null;
+  dst_message_id: number | null;
+  dst_tip_term: string | null;
+  relation_kind: string;
+  explanation: string;
+  weight: number;
+  created_at: string;
+};
+
+export type GraphEdgeInput = Omit<GraphEdge, "id" | "created_at">;
+
+export function listGraphEdges(): GraphEdge[] {
+  return getDb()
+    .prepare(
+      `SELECT * FROM graph_edges ORDER BY weight DESC, created_at DESC`,
+    )
+    .all() as GraphEdge[];
+}
+
+export function addGraphEdge(edge: GraphEdgeInput): GraphEdge {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO graph_edges (
+         id, src_kind, src_topic_id, src_message_id, src_tip_term,
+         dst_kind, dst_topic_id, dst_message_id, dst_tip_term,
+         relation_kind, explanation, weight, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      id,
+      edge.src_kind,
+      edge.src_topic_id,
+      edge.src_message_id,
+      edge.src_tip_term,
+      edge.dst_kind,
+      edge.dst_topic_id,
+      edge.dst_message_id,
+      edge.dst_tip_term,
+      edge.relation_kind,
+      edge.explanation,
+      edge.weight,
+      now,
+    );
+  return { id, created_at: now, ...edge };
 }
 
 /**
