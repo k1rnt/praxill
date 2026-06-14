@@ -39,6 +39,13 @@ export default function NewTopicForm() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [extracting, setExtracting] = useState(false);
   const [extracted, setExtracted] = useState<ExtractedFile | null>(null);
+  // Drag-and-drop overlay state. Tracked with a depth counter because
+  // dragenter/dragleave fire per-child on nested elements (the textarea,
+  // the extracted card, etc.); a plain bool flickers off whenever the
+  // pointer crosses a child boundary even though we're still inside the
+  // zone. Increment on enter, decrement on leave, show overlay while > 0.
+  const dragDepthRef = useRef(0);
+  const [dragOver, setDragOver] = useState(false);
 
   // Summarize-large-resource flow. The summarize step runs server-side
   // in the background; on the client we only POST to kick it off and
@@ -61,10 +68,7 @@ export default function NewTopicForm() {
 
   const SUMMARIZE_JOB_STORAGE_KEY = "praxill:summarize_job_id";
 
-  async function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // reset so picking the same file again re-fires
-    if (!file) return;
+  async function uploadFile(file: File) {
     setExtracting(true);
     setError(null);
     try {
@@ -107,6 +111,67 @@ export default function NewTopicForm() {
     }
   }
 
+  async function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // reset so picking the same file again re-fires
+    if (!file) return;
+    await uploadFile(file);
+  }
+
+  // Validate by extension because dataTransfer.files lose the accept-filter
+  // pre-check that the <input> would have applied; reject everything we
+  // can't handle so the user doesn't watch a 50MB binary upload silently
+  // fail server-side.
+  const ACCEPTED_EXTS = [
+    ".md",
+    ".markdown",
+    ".txt",
+    ".html",
+    ".htm",
+    ".pdf",
+  ];
+
+  function isAcceptedFile(file: File): boolean {
+    const name = file.name.toLowerCase();
+    return ACCEPTED_EXTS.some((ext) => name.endsWith(ext));
+  }
+
+  function onDragEnter(e: React.DragEvent<HTMLDivElement>) {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setDragOver(true);
+  }
+
+  function onDragOver(e: React.DragEvent<HTMLDivElement>) {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }
+
+  function onDragLeave(e: React.DragEvent<HTMLDivElement>) {
+    if (!e.dataTransfer.types.includes("Files")) return;
+    e.preventDefault();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setDragOver(false);
+  }
+
+  async function onDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setDragOver(false);
+    if (extracting || submitting || summarizing) return;
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    if (!isAcceptedFile(file)) {
+      setError(
+        "対応していないファイル形式です (Markdown / HTML / PDF / テキストのみ)",
+      );
+      return;
+    }
+    await uploadFile(file);
+  }
+
   function clearExtracted() {
     setExtracted(null);
     setSubject("");
@@ -127,6 +192,20 @@ export default function NewTopicForm() {
     setSummarizedAt(Date.now());
     setSummarizeProgress(null);
     setError(null);
+    // Sweep any stale job left over from a previous failed attempt so
+    // we don't accumulate orphan rows. Fire-and-forget; if the row is
+    // already gone the DELETE 404s harmlessly.
+    try {
+      const stale = localStorage.getItem(SUMMARIZE_JOB_STORAGE_KEY);
+      if (stale) {
+        fetch(`/api/topics/summarize/${stale}`, { method: "DELETE" }).catch(
+          () => undefined,
+        );
+        localStorage.removeItem(SUMMARIZE_JOB_STORAGE_KEY);
+      }
+    } catch {
+      // ignore
+    }
     const original = subject;
     try {
       const res = await fetch("/api/topics/summarize", {
@@ -248,10 +327,14 @@ export default function NewTopicForm() {
           clearSummarizeJob();
         } else if (data.status === "error") {
           setError(data.error ?? "要約に失敗しました");
-          fetch(`/api/topics/summarize/${summarizeJobId}`, {
-            method: "DELETE",
-          }).catch(() => undefined);
-          clearSummarizeJob();
+          // Keep the server-side job row and localStorage entry alive so
+          // the user can reload the page and still recover the raw text
+          // they pasted (the resume effect re-hydrates subject from it).
+          // The stale row gets cleaned up on the next runSummarize retry,
+          // or as a safety net by the boot-time recovery on server restart.
+          setSummarizeJobId(null);
+          setSummarizing(false);
+          setSummarizeProgress(null);
         }
       } catch {
         // Network blip — silently retry next tick.
@@ -269,8 +352,12 @@ export default function NewTopicForm() {
   }, [summarizeJobId]);
 
   // Resume effect: on mount, look for a job id left in localStorage
-  // (the user closed the tab while a summarize was running). If found,
-  // re-enter the polling loop without restarting the codex calls.
+  // (the user closed the tab or refreshed while a summarize was
+  // running). If found, re-enter the polling loop without restarting
+  // the codex calls. Also re-hydrate the subject textarea from the
+  // server-stored raw text so the user keeps their input even if the
+  // job ultimately errors out — losing 8 MB of pasted material to an
+  // ephemeral codex hiccup is rude.
   useEffect(() => {
     let stored: string | null = null;
     try {
@@ -282,6 +369,17 @@ export default function NewTopicForm() {
     setSummarizeJobId(stored);
     setSummarizing(true);
     setSummarizedAt(Date.now());
+    // Fire-and-forget raw fetch — if the user already has subject text
+    // in some other state, we don't want to clobber it, but on a fresh
+    // mount subject is empty and this restores it.
+    fetch(`/api/topics/summarize/${stored}/raw`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { rawText?: string } | null) => {
+        if (data && typeof data.rawText === "string") {
+          setSubject((prev) => (prev.trim().length === 0 ? data.rawText! : prev));
+        }
+      })
+      .catch(() => undefined);
     // The polling effect (above) takes over from here.
   }, []);
 
@@ -343,10 +441,22 @@ export default function NewTopicForm() {
         />
         <span className="form__hint">一覧画面で見出しに使われます。</span>
       </div>
-      <div>
+      <div
+        className={`form__dropzone${dragOver ? " form__dropzone--active" : ""}`}
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
         <label className="form__label" htmlFor="subject">
           題材
         </label>
+        {dragOver && (
+          <div className="form__dropzone-hint">
+            <Upload size={18} strokeWidth={2.2} />
+            <span>ここにファイルをドロップ (Markdown / HTML / PDF / テキスト)</span>
+          </div>
+        )}
         <div className="form__subject-tools">
           <label className="btn btn--ghost btn--sm form__upload">
             {extracting ? (
