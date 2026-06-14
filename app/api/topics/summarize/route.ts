@@ -6,6 +6,7 @@ import {
   CREATION_REASONING,
   cancelCodexCall,
   codexStart,
+  summarizeTimeoutForBytes,
 } from "@/lib/codex";
 import {
   createSummarizeJob,
@@ -51,6 +52,7 @@ async function runSummarizeJob(
         buildSummarizePrompt(text, goal),
         reasoning,
         jobId, // one-shot path can reuse jobId as the lock — no parallel siblings
+        summarizeTimeoutForBytes(textBytes),
       );
       outline = result.text.trim();
       incrementSummarizeJobChunk(jobId);
@@ -63,10 +65,12 @@ async function runSummarizeJob(
       );
       const partials = await Promise.all(
         chunks.map(async (chunk, i) => {
+          const chunkBytes = Buffer.byteLength(chunk, "utf8");
           const r = await codexStart(
             buildSummarizeChunkPrompt(chunk, goal, i + 1, chunks.length),
             reasoning,
             `${jobId}-c${i}`,
+            summarizeTimeoutForBytes(chunkBytes),
           );
           incrementSummarizeJobChunk(jobId);
           return r.text.trim();
@@ -80,13 +84,16 @@ async function runSummarizeJob(
         });
         return;
       }
+      const mergeInputs = partials.filter((p) => p.length > 0);
+      const mergeBytes = mergeInputs.reduce(
+        (acc, p) => acc + Buffer.byteLength(p, "utf8"),
+        0,
+      );
       const merged = await codexStart(
-        buildMergeOutlinesPrompt(
-          partials.filter((p) => p.length > 0),
-          goal,
-        ),
+        buildMergeOutlinesPrompt(mergeInputs, goal),
         reasoning,
         `${jobId}-merge`,
+        summarizeTimeoutForBytes(mergeBytes),
       );
       outline = merged.text.trim();
     }

@@ -112,7 +112,12 @@ function runCodex(
   args: string[],
   prompt: string,
   lockId?: string,
+  timeoutMs?: number,
 ): Promise<CodexResult> {
+  const effectiveTimeout =
+    timeoutMs && Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? timeoutMs
+      : TIMEOUT_MS;
   return new Promise((resolve, reject) => {
     const child = spawn(CODEX_BIN, args, {
       stdio: ["pipe", "pipe", "pipe"],
@@ -166,8 +171,8 @@ function runCodex(
         // Already exited.
       }
       cleanup();
-      reject(new Error(`codex timed out after ${TIMEOUT_MS}ms`));
-    }, TIMEOUT_MS);
+      reject(new Error(`codex timed out after ${effectiveTimeout}ms`));
+    }, effectiveTimeout);
 
     child.stdout.on("data", (b: Buffer) => {
       stdoutBuf += b.toString("utf8");
@@ -292,11 +297,13 @@ export async function codexStart(
   prompt: string,
   reasoning?: string,
   lockId?: string,
+  timeoutMs?: number,
 ): Promise<CodexResult & { threadId: string }> {
   const result = await runCodex(
     ["exec", ...buildArgs(reasoning)],
     prompt,
     lockId,
+    timeoutMs,
   );
   if (!result.threadId) {
     console.error("[codex] start did not produce a thread_id");
@@ -310,10 +317,34 @@ export function codexResume(
   prompt: string,
   reasoning?: string,
   lockId?: string,
+  timeoutMs?: number,
 ): Promise<CodexResult> {
   return runCodex(
     ["exec", "resume", threadId, ...buildArgs(reasoning)],
     prompt,
     lockId,
+    timeoutMs,
   );
+}
+
+/**
+ * Wall-clock budget heuristic for the summarize step. Scales linearly
+ * with input size on top of the default per-call timeout so that
+ * cert-scale PDFs (OSCP / OSEP / OSWE textbooks, sometimes 50+ MB
+ * extracted to multi-MB outline merges) don't trip the 8-min default
+ * before xhigh reasoning has even started emitting. Capped at 30 min
+ * because beyond that the codex CLI is more likely stuck than slow.
+ *
+ *   <= 100 KB: 8 min  (default floor)
+ *   500 KB:   10 min
+ *   900 KB:   14 min  (one full chunk)
+ *   2 MB:     25 min  (merge of several partials)
+ *   > 2.5 MB: 30 min  (cap)
+ */
+export function summarizeTimeoutForBytes(bytes: number): number {
+  const DEFAULT_FLOOR_MS = 8 * 60 * 1000;
+  const PER_100KB_MS = 60 * 1000;
+  const CAP_MS = 30 * 60 * 1000;
+  const computed = 5 * 60 * 1000 + Math.ceil(bytes / (100 * 1024)) * PER_100KB_MS;
+  return Math.min(CAP_MS, Math.max(DEFAULT_FLOOR_MS, computed));
 }
