@@ -102,6 +102,30 @@ const FREEFORM_META_REMINDER =
   "<!-- praxill-meta\ncorrect: {正解の選択肢 A|B|C|D}\ntip: {用語} | {1〜2文の標準語の用語解説}\n--> " +
   "ブロックを 1 つ含めてください。出題しない応答ではメタは不要です。）";
 
+// Phase-warp directive: the user wants to jump straight to the target
+// Phase's Q1 regardless of where they currently are. Could be a forward
+// skip (Phase 5 → 8) or a backward revisit (Phase 5 → 2). The model
+// might still see the prior turn's Phase header in history and try to
+// keep counting from there, so the directive explicitly tells it to
+// reset to Q1 of the target Phase and ignore any local Q counter state.
+function warpDirective(targetPhase: number): string {
+  return (
+    "\n\n（システム注 — Phase 切替: ユーザーは Phase " +
+    targetPhase +
+    " の Q1 から新しく始めることを選びました。" +
+    "直前までの出題状況や Q 番号の連番は無視して、Phase " +
+    targetPhase +
+    " の最初の問題として Q1 を 1 問だけ出してください。" +
+    "見出しは「## Phase " +
+    targetPhase +
+    ": {その Phase の名前}」「### Q1. {問題タイトル}」の形にし、" +
+    "通常通り A/B/C/D の4択・短いシナリオ・本文末尾の <!-- praxill-meta --> ブロックを含めてください。" +
+    "これ以後は通常通り Phase " +
+    targetPhase +
+    " 内で Q2, Q3 … と続けてください。）"
+  );
+}
+
 async function runCodexInBackground(
   topicId: string,
   threadId: string | null,
@@ -110,6 +134,7 @@ async function runCodexInBackground(
   shouldScore: boolean,
   isSkip: boolean,
   reasoning?: string,
+  targetPhase?: number,
 ) {
   const localInstanceId = getLocalInstanceId();
   // Freeform request path: skip the Phase 2 split entirely. The user
@@ -124,6 +149,7 @@ async function runCodexInBackground(
       lockId,
       reasoning,
       localInstanceId,
+      targetPhase,
     );
   }
 
@@ -296,8 +322,12 @@ async function runFreeformInBackground(
   lockId: string,
   reasoning: string | undefined,
   localInstanceId: string,
+  targetPhase?: number,
 ) {
-  const codexPrompt = content + FREEFORM_META_REMINDER;
+  const codexPrompt =
+    content +
+    FREEFORM_META_REMINDER +
+    (targetPhase !== undefined ? warpDirective(targetPhase) : "");
   try {
     let result;
     let rehydrated = false;
@@ -331,10 +361,20 @@ async function runFreeformInBackground(
     const wrote = withCodexLock(topicId, lockId, (topic) => {
       addMessage(topicId, "assistant", result.text);
       const progress = parseAssistantProgress(result.text, false);
-      const phaseUpdate =
-        progress.currentPhase !== undefined
-          ? Math.max(topic.current_phase, progress.currentPhase)
-          : undefined;
+      // Phase update policy:
+      //   - normal freeform: monotonic (Math.max) so a stray "Phase 1"
+      //     reference in a recap doesn't yank current_phase backward.
+      //   - explicit warp: the user *chose* to jump (forward or backward),
+      //     so override current_phase to the target regardless of where
+      //     they were. Without this, warping Phase 5 → Phase 2 would
+      //     leave current_phase stuck at 5 even though the new quiz is
+      //     visibly Phase 2.
+      let phaseUpdate: number | undefined;
+      if (targetPhase !== undefined) {
+        phaseUpdate = targetPhase;
+      } else if (progress.currentPhase !== undefined) {
+        phaseUpdate = Math.max(topic.current_phase, progress.currentPhase);
+      }
       const patch: Parameters<typeof updateTopic>[1] = {
         thread_id: result.threadId ?? topic.thread_id ?? undefined,
         current_phase: phaseUpdate,
@@ -398,6 +438,23 @@ export async function POST(
       ? (body.reasoning as "medium" | "high")
       : undefined;
 
+  // Phase warp: jump to the first quiz of a different Phase. Combined
+  // with skip/hidden it's incoherent (skip implies answering a real
+  // quiz; warp implies abandoning the current one), so reject early.
+  const targetPhaseRaw = body.targetPhase;
+  const targetPhase =
+    typeof targetPhaseRaw === "number" && Number.isInteger(targetPhaseRaw)
+      ? targetPhaseRaw
+      : undefined;
+  if (targetPhase !== undefined) {
+    if (isSkip) {
+      return badRequest("targetPhase は skip と併用できません");
+    }
+    if (targetPhase < 1) {
+      return badRequest("targetPhase は 1 以上の整数で指定してください");
+    }
+  }
+
   const isAnswerShaped = /^\s*回答[:：]\s*[A-D]\s*$/m.test(content);
 
   const lockId = randomUUID();
@@ -407,6 +464,7 @@ export async function POST(
     | { kind: "not_active"; topic: ReturnType<typeof getTopic> }
     | { kind: "busy"; topic: ReturnType<typeof getTopic> }
     | { kind: "no_quiz"; topic: ReturnType<typeof getTopic> }
+    | { kind: "bad_phase"; topic: ReturnType<typeof getTopic> }
     | {
         kind: "ok";
         userMessage: Message;
@@ -417,6 +475,17 @@ export async function POST(
     if (!topic) return { kind: "notfound" };
     if (topic.status !== "active") return { kind: "not_active", topic };
     if (topic.codex_lock !== null) return { kind: "busy", topic };
+    // Upper bound check on warp — total_phases is known only after the
+    // topic is active so the validation has to happen inside the claim.
+    // total_phases == 0 happens for legacy topics where the map wasn't
+    // parsed; in that case allow any positive integer (no cap).
+    if (
+      targetPhase !== undefined &&
+      topic.total_phases > 0 &&
+      targetPhase > topic.total_phases
+    ) {
+      return { kind: "bad_phase", topic };
+    }
 
     // Skip "__codex error__" messages — if the previous turn failed, the
     // real quiz still lives in the assistant message before that.
@@ -481,6 +550,15 @@ export async function POST(
       { status: 409 },
     );
   }
+  if (claim.kind === "bad_phase") {
+    return NextResponse.json(
+      {
+        error: "存在しない Phase が指定されました。",
+        topic: claim.topic,
+      },
+      { status: 400 },
+    );
+  }
 
   runCodexInBackground(
     id,
@@ -490,6 +568,7 @@ export async function POST(
     claim.shouldScore,
     isSkip,
     reasoning,
+    targetPhase,
   ).catch((err) => {
     console.error("[answer] background codex unhandled:", err);
   });

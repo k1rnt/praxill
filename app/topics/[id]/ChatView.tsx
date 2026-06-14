@@ -24,6 +24,7 @@ import { SKIP_MARKER, SKIP_PREFIX_RE } from "@/lib/skip";
 import {
   ChevronLeft,
   ChevronRight,
+  Layers,
   Map as MapIcon,
   MoreVertical,
   Notebook,
@@ -331,6 +332,10 @@ export default function ChatView({
   const [menuOpen, setMenuOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Phase warp: open a picker listing every Phase in the knowledge map
+  // so the user can jump to any Phase's Q1 from wherever they are. We
+  // only let them jump to Q1 (not arbitrary Qn) per spec.
+  const [phasePickerOpen, setPhasePickerOpen] = useState(false);
 
   // Server-side codex is async — `pending_user_message_id` on the topic tells
   // us a background call is in flight. `submitting` is the short blip while
@@ -623,7 +628,11 @@ export default function ChatView({
 
   async function send(
     content: string,
-    opts: { hidden?: boolean; skip?: boolean } = {},
+    opts: {
+      hidden?: boolean;
+      skip?: boolean;
+      targetPhase?: number;
+    } = {},
   ) {
     if (sending) return;
     const skip = opts.skip === true;
@@ -646,7 +655,13 @@ export default function ChatView({
       const res = await fetch(`/api/topics/${topicState.id}/answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, hidden, reasoning, skip }),
+        body: JSON.stringify({
+          content,
+          hidden,
+          reasoning,
+          skip,
+          targetPhase: opts.targetPhase,
+        }),
       });
       const data = (await res.json()) as {
         userMessage?: Message;
@@ -734,6 +749,17 @@ export default function ChatView({
     );
   }
 
+  function warpToPhase(targetPhase: number) {
+    setPhasePickerOpen(false);
+    // The user message stays visible in the transcript so the jump
+    // doesn't look magical — readers can see why the next quiz is
+    // suddenly Phase N Q1. The server-side warpDirective fills in
+    // the actual generation rules.
+    send(`Phase ${targetPhase} の Q1 から始めます。`, {
+      targetPhase,
+    });
+  }
+
   // Derive the displayed score from the same client-side detection that
   // feeds the per-phase tallies, instead of trusting topic.correct_count /
   // total_count. The server counters are accumulated at codex-response
@@ -811,6 +837,19 @@ export default function ChatView({
                   onClick={() => setMenuOpen(false)}
                 />
                 <div className="kebab__menu" role="menu">
+                  <button
+                    type="button"
+                    className="kebab__item"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setPhasePickerOpen(true);
+                    }}
+                    disabled={sending}
+                  >
+                    <Layers size={16} strokeWidth={2} />
+                    <span>別 Phase の Q1 から始める…</span>
+                  </button>
                   <button
                     type="button"
                     className="kebab__item kebab__item--danger"
@@ -1027,6 +1066,17 @@ export default function ChatView({
         />
       )}
 
+      {phasePickerOpen && (
+        <PhasePickerOverlay
+          map={knowledgeMap}
+          currentPhase={topicState.current_phase}
+          totalPhases={topicState.total_phases}
+          sending={sending}
+          onPick={warpToPhase}
+          onClose={() => setPhasePickerOpen(false)}
+        />
+      )}
+
       {deleteConfirmOpen && (
         <div
           className="modal-overlay"
@@ -1093,6 +1143,102 @@ export default function ChatView({
 // remounts on the next wait — useRef/useState would reset). Keyed by
 // topic id so different topics don't interfere.
 const lastTipMemory = new Map<string, string>();
+
+/**
+ * Phase-warp modal. Lists every Phase from the knowledge map and lets
+ * the user jump to that Phase's Q1 regardless of where they currently
+ * are. Marks the current Phase but doesn't disable it — "restart this
+ * Phase from Q1" is a legitimate ask (e.g. after a long break).
+ */
+function PhasePickerOverlay({
+  map,
+  currentPhase,
+  totalPhases,
+  sending,
+  onPick,
+  onClose,
+}: {
+  map: KnowledgeMap | null;
+  currentPhase: number;
+  totalPhases: number;
+  sending: boolean;
+  onPick: (phase: number) => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // Source of truth for phases: the knowledge map's phase rows. If the
+  // map didn't parse (legacy topics), fall back to a synthetic list of
+  // 1..total_phases so the user can still warp.
+  const phases: Array<{ n: number; headline?: string }> = useMemo(() => {
+    if (map && map.phases.length > 0) {
+      return map.phases
+        .map((p) => {
+          const m = p.phase.match(/(\d+)/);
+          const n = m ? parseInt(m[1], 10) : NaN;
+          return { n, headline: p.headline };
+        })
+        .filter((p) => Number.isFinite(p.n) && p.n >= 1)
+        .sort((a, b) => a.n - b.n);
+    }
+    const n = Math.max(totalPhases, 1);
+    return Array.from({ length: n }, (_, i) => ({ n: i + 1 }));
+  }, [map, totalPhases]);
+
+  return (
+    <div
+      className="modal-overlay"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="modal phase-picker"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="modal__title">別 Phase の Q1 から始める</h2>
+        <p className="modal__body">
+          いまの出題状況に関係なく、選んだ Phase の Q1
+          から仕切り直します。Q2 以降への直接ジャンプはできません。
+        </p>
+        <ul className="phase-picker__list">
+          {phases.map((p) => {
+            const isCurrent = p.n === currentPhase;
+            return (
+              <li key={p.n}>
+                <button
+                  type="button"
+                  className={`phase-picker__item${isCurrent ? " phase-picker__item--current" : ""}`}
+                  onClick={() => onPick(p.n)}
+                  disabled={sending}
+                >
+                  <span className="phase-picker__badge">{p.n}</span>
+                  <span className="phase-picker__headline">
+                    {p.headline ?? `Phase ${p.n}`}
+                  </span>
+                  {isCurrent && (
+                    <span className="phase-picker__tag">いま</span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="modal__actions">
+          <button type="button" className="btn" onClick={onClose}>
+            キャンセル
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /**
  * Helper panel shown while the Trainer is generating a response. Pulls a
