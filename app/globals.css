@@ -322,11 +322,21 @@ kbd {
   z-index: 5;
 }
 
-/* Hide the default React Flow node handles — we don't expose connections,
-   the user can't draw edges, and the dots get visually muddied otherwise. */
+/* Hide the default React Flow node handles visually — they still need
+   to exist in the DOM so edges have anchor points to attach to, but we
+   don't want the user to see them as bumps on the dot. Width/height
+   must stay nonzero (xyflow uses the handle bbox to compute the
+   attachment coords) so we use width:1px height:1px instead of
+   display:none, which would break edge rendering entirely. */
 .react-flow__handle {
-  opacity: 0;
+  width: 1px;
+  height: 1px;
+  min-width: 1px;
+  min-height: 1px;
+  background: transparent;
+  border: none;
   pointer-events: none;
+  opacity: 0;
 }
 
 .graph-canvas__loading {

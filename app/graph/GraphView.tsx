@@ -6,6 +6,8 @@ import {
   ReactFlow,
   Background,
   Controls,
+  Handle,
+  Position,
   type Node,
   type Edge,
   type NodeMouseHandler,
@@ -149,26 +151,36 @@ function buildEdges(data: GraphData): Edge[] {
     target: e.target,
     data: { edge: e },
     animated: !e.structural,
+    type: "straight",
     style: e.structural
       ? {
-          stroke: "var(--border-strong)",
-          strokeWidth: 0.8,
-          opacity: 0.35,
+          // Q→tip "introduces" edges. Visible enough to read the topology
+          // at a glance but quiet enough that future cross-topic relation
+          // edges (animated + accent-colored) still pop above them.
+          stroke: "var(--fg-muted)",
+          strokeWidth: 1,
+          opacity: 0.55,
         }
-      : { stroke: "var(--accent)", strokeWidth: 1.4 },
+      : { stroke: "var(--accent)", strokeWidth: 1.6 },
   }));
 }
 
 // Obsidian-style compact node renderers. The visible footprint is a
 // small dot with the label below; the larger card opens in the drawer
 // on click. Keeps the canvas readable when there are hundreds of nodes.
+//
+// Hidden handles are required: custom nodes that omit <Handle/> give
+// React Flow no anchor point, and edges silently fail to render. We
+// expose both source and target so edges work regardless of direction.
 function QuestionNode({ data }: { data: { node: GraphNode } }) {
   const n = data.node;
   const color = topicColor(n.topicId);
   return (
     <div className="gnode gnode--question" title={n.label}>
+      <Handle type="target" position={Position.Top} isConnectable={false} />
       <div className="gnode__dot" style={{ background: color }} />
       <div className="gnode__label">{n.label}</div>
+      <Handle type="source" position={Position.Bottom} isConnectable={false} />
     </div>
   );
 }
@@ -181,8 +193,10 @@ function TipNode({ data }: { data: { node: GraphNode } }) {
       className={`gnode gnode--tip${hub ? " gnode--hub" : ""}`}
       title={n.label}
     >
+      <Handle type="target" position={Position.Top} isConnectable={false} />
       <div className="gnode__dot gnode__dot--tip" />
       <div className="gnode__label gnode__label--tip">{n.label}</div>
+      <Handle type="source" position={Position.Bottom} isConnectable={false} />
     </div>
   );
 }
