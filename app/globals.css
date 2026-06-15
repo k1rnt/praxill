@@ -322,6 +322,37 @@ kbd {
   z-index: 5;
 }
 
+/* Obsidian-style focus: hover or click a node, the 1-hop neighbourhood
+   stays full strength and everything else fades to a whisper. The
+   wrapper class lives on the .react-flow__node element (set via
+   Node.className) so opacity transitions affect the whole node card
+   uniformly. */
+.gnode-wrap {
+  transition: opacity 200ms ease;
+}
+.gnode-wrap--dim {
+  opacity: 0.12;
+}
+.gnode-wrap--dim:hover {
+  /* Hovering a dimmed node briefly de-dims it so users can still find
+     and tap nodes outside the current focus set. */
+  opacity: 0.6;
+}
+/* The anchor (the hovered/clicked node itself) gets a soft halo so the
+   user can find the focal point at a glance. */
+.gnode--anchor .gnode__dot,
+.gnode--anchor .gnode__dot--tip {
+  transform: scale(1.5);
+  box-shadow: 0 0 0 2px var(--accent), 0 0 16px var(--accent);
+}
+.gnode--anchor .gnode__label,
+.gnode--anchor .gnode__label--tip {
+  color: var(--fg);
+  white-space: normal;
+  font-weight: 700;
+  z-index: 5;
+}
+
 /* Hide the default React Flow node handles visually — they still need
    to exist in the DOM so edges have anchor points to attach to, but we
    don't want the user to see them as bumps on the dot. Width/height

@@ -144,25 +144,50 @@ function runForceLayout(
   return pos;
 }
 
-function buildEdges(data: GraphData): Edge[] {
-  return data.edges.map((e) => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    data: { edge: e },
-    animated: !e.structural,
-    type: "straight",
-    style: e.structural
-      ? {
-          // Q→tip "introduces" edges. Visible enough to read the topology
-          // at a glance but quiet enough that future cross-topic relation
-          // edges (animated + accent-colored) still pop above them.
-          stroke: "var(--fg-muted)",
-          strokeWidth: 1,
-          opacity: 0.55,
-        }
-      : { stroke: "var(--accent)", strokeWidth: 1.6 },
-  }));
+// Base opacity per edge kind — focus mode multiplies these so dimmed
+// edges go from this value down to ~5%, focused edges stay at this
+// value (or go up if a structural edge happens to be on the focus path).
+const STRUCTURAL_BASE_OPACITY = 0.55;
+const RELATION_BASE_OPACITY = 1;
+
+function buildEdges(
+  data: GraphData,
+  focusSet: Set<string> | null,
+  focusNodeId: string | null,
+): Edge[] {
+  return data.edges.map((e) => {
+    const inFocus =
+      focusNodeId !== null &&
+      (e.source === focusNodeId || e.target === focusNodeId);
+    const dimmed = focusSet !== null && !inFocus;
+    const baseOpacity = e.structural
+      ? STRUCTURAL_BASE_OPACITY
+      : RELATION_BASE_OPACITY;
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      data: { edge: e },
+      animated: !e.structural && !dimmed,
+      type: "straight",
+      style: e.structural
+        ? {
+            // Q→tip "introduces" edges. Visible enough to read the topology
+            // at a glance but quiet enough that future cross-topic relation
+            // edges (animated + accent-colored) still pop above them.
+            stroke: "var(--fg-muted)",
+            strokeWidth: inFocus ? 1.4 : 1,
+            opacity: dimmed ? 0.05 : baseOpacity,
+            transition: "opacity 200ms ease, stroke-width 200ms ease",
+          }
+        : {
+            stroke: "var(--accent)",
+            strokeWidth: inFocus ? 2.2 : 1.6,
+            opacity: dimmed ? 0.06 : baseOpacity,
+            transition: "opacity 200ms ease, stroke-width 200ms ease",
+          },
+    } satisfies Edge;
+  });
 }
 
 // Obsidian-style compact node renderers. The visible footprint is a
@@ -172,31 +197,74 @@ function buildEdges(data: GraphData): Edge[] {
 // Hidden handles are required: custom nodes that omit <Handle/> give
 // React Flow no anchor point, and edges silently fail to render. We
 // expose both source and target so edges work regardless of direction.
-function QuestionNode({ data }: { data: { node: GraphNode } }) {
+// Single hidden handle pinned to the geometric center of the dot, used
+// for BOTH source and target attach. xyflow lets you stack handles by
+// giving them distinct ids; both edges then resolve to the same point,
+// so lines arrive at the centre of the dot regardless of orientation.
+// Without this the default Top/Bottom anchors land ~6px off the visible
+// dot (the wrapper's bbox > the dot's bbox), and the user reads it as
+// "the line doesn't touch the node".
+const centerHandleStyle: React.CSSProperties = {
+  top: "50%",
+  left: "50%",
+  transform: "translate(-50%, -50%)",
+};
+
+function CenterHandles() {
+  return (
+    <>
+      <Handle
+        id="c"
+        type="source"
+        position={Position.Top}
+        isConnectable={false}
+        style={centerHandleStyle}
+      />
+      <Handle
+        id="ct"
+        type="target"
+        position={Position.Top}
+        isConnectable={false}
+        style={centerHandleStyle}
+      />
+    </>
+  );
+}
+
+function QuestionNode({
+  data,
+}: {
+  data: { node: GraphNode; dimmed?: boolean; isAnchor?: boolean };
+}) {
   const n = data.node;
   const color = topicColor(n.topicId);
   return (
-    <div className="gnode gnode--question" title={n.label}>
-      <Handle type="target" position={Position.Top} isConnectable={false} />
+    <div
+      className={`gnode gnode--question${data.isAnchor ? " gnode--anchor" : ""}`}
+      title={n.label}
+    >
+      <CenterHandles />
       <div className="gnode__dot" style={{ background: color }} />
       <div className="gnode__label">{n.label}</div>
-      <Handle type="source" position={Position.Bottom} isConnectable={false} />
     </div>
   );
 }
 
-function TipNode({ data }: { data: { node: GraphNode } }) {
+function TipNode({
+  data,
+}: {
+  data: { node: GraphNode; dimmed?: boolean; isAnchor?: boolean };
+}) {
   const n = data.node;
   const hub = (n.topics?.length ?? 0) > 1;
   return (
     <div
-      className={`gnode gnode--tip${hub ? " gnode--hub" : ""}`}
+      className={`gnode gnode--tip${hub ? " gnode--hub" : ""}${data.isAnchor ? " gnode--anchor" : ""}`}
       title={n.label}
     >
-      <Handle type="target" position={Position.Top} isConnectable={false} />
+      <CenterHandles />
       <div className="gnode__dot gnode__dot--tip" />
       <div className="gnode__label gnode__label--tip">{n.label}</div>
-      <Handle type="source" position={Position.Bottom} isConnectable={false} />
     </div>
   );
 }
@@ -225,21 +293,59 @@ export default function GraphView({ data }: { data: GraphData }) {
     return () => window.clearTimeout(id);
   }, [data]);
 
+  // Focus state: hover gives a transient focus that follows the cursor,
+  // click pins it sticky until the user clicks empty pane or a different
+  // node. Touch devices only get the sticky variant because there's no
+  // hover, but the same code path drives both — `effectiveFocus` resolves
+  // sticky > hover.
+  const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
+  const [stickyNodeId, setStickyNodeId] = useState<string | null>(null);
+  const effectiveFocus = stickyNodeId ?? hoverNodeId;
+
+  // Pre-compute an adjacency map once so 1-hop lookup during focus is O(1)
+  // — recomputing inside the focusSet memo would re-walk every edge on
+  // every hover event.
+  const adjacency = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const e of data.edges) {
+      if (!m.has(e.source)) m.set(e.source, new Set());
+      if (!m.has(e.target)) m.set(e.target, new Set());
+      m.get(e.source)!.add(e.target);
+      m.get(e.target)!.add(e.source);
+    }
+    return m;
+  }, [data.edges]);
+
+  const focusSet = useMemo(() => {
+    if (!effectiveFocus) return null;
+    const s = new Set<string>([effectiveFocus]);
+    const neighbors = adjacency.get(effectiveFocus);
+    if (neighbors) for (const n of neighbors) s.add(n);
+    return s;
+  }, [effectiveFocus, adjacency]);
+
   const nodes: Node[] = useMemo(() => {
     if (!positions) return [];
     return data.nodes.map((n) => {
       const p = positions.get(n.id) ?? { x: 0, y: 0 };
+      const inFocus = focusSet !== null && focusSet.has(n.id);
+      const isAnchor = effectiveFocus === n.id;
+      const dimmed = focusSet !== null && !inFocus;
       return {
         id: n.id,
         position: p,
-        data: { node: n },
+        data: { node: n, dimmed, isAnchor },
         type: n.kind === "tip" ? "praxTip" : "praxQuestion",
         draggable: true,
+        className: dimmed ? "gnode-wrap gnode-wrap--dim" : "gnode-wrap",
       } satisfies Node;
     });
-  }, [data.nodes, positions]);
+  }, [data.nodes, positions, focusSet, effectiveFocus]);
 
-  const edges: Edge[] = useMemo(() => buildEdges(data), [data]);
+  const edges: Edge[] = useMemo(
+    () => buildEdges(data, focusSet, effectiveFocus),
+    [data, focusSet, effectiveFocus],
+  );
 
   const [selected, setSelected] = useState<
     | { kind: "node"; node: GraphNode }
@@ -256,10 +362,17 @@ export default function GraphView({ data }: { data: GraphData }) {
   const onNodeClick: NodeMouseHandler = (_e, n) => {
     const node = nodeMap.get(n.id);
     if (node) setSelected({ kind: "node", node });
+    setStickyNodeId(n.id);
   };
   const onEdgeClick: EdgeMouseHandler = (_e, e) => {
     const edge = data.edges.find((x) => x.id === e.id);
     if (edge) setSelected({ kind: "edge", edge });
+  };
+  const onNodeMouseEnter: NodeMouseHandler = (_e, n) => {
+    setHoverNodeId(n.id);
+  };
+  const onNodeMouseLeave: NodeMouseHandler = () => {
+    setHoverNodeId(null);
   };
 
   if (data.nodes.length === 0) {
@@ -283,7 +396,12 @@ export default function GraphView({ data }: { data: GraphData }) {
         nodeTypes={nodeTypes}
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
-        onPaneClick={() => setSelected(null)}
+        onNodeMouseEnter={onNodeMouseEnter}
+        onNodeMouseLeave={onNodeMouseLeave}
+        onPaneClick={() => {
+          setSelected(null);
+          setStickyNodeId(null);
+        }}
         minZoom={0.05}
         maxZoom={3}
         fitView
