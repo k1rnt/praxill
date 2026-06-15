@@ -340,13 +340,16 @@ kbd {
   opacity: 0.18;
 }
 
-/* Mobile pinch-zoom escape hatch: a canvas full of relation edges
-   intercepts touch events, so two-finger pinch lands on edges instead
-   of the pane and the gesture never registers. Edges become visual-
-   only — relation explanations now live in the node drawer (clicking a
-   node lists its relations), so we don't lose that data path. */
-.react-flow__edge {
-  pointer-events: none;
+/* Edges stay clickable on desktop / trackpad so the user can tap a
+   line to see its relation explanation. On touch devices (coarse
+   pointer) we disable edge pointer events because a canvas full of
+   animated lines intercepts two-finger pinch and the gesture never
+   reaches the pane — there, the node drawer's relation list takes
+   over the same job. */
+@media (pointer: coarse) {
+  .react-flow__edge {
+    pointer-events: none;
+  }
 }
 /* The anchor (the hovered/clicked node itself) gets a soft halo so the
    user can find the focal point at a glance. */
@@ -515,6 +518,13 @@ kbd {
   color: var(--fg-muted);
   line-height: 1.5;
   word-break: break-word;
+}
+
+.graph-drawer__edge-ends {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 /* Buttons */

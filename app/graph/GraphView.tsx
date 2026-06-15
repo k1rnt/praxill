@@ -572,6 +572,45 @@ export default function GraphView({ data }: { data: GraphData }) {
               )}
             </>
           )}
+          {selected.kind === "edge" && (
+            <>
+              <div className="graph-drawer__eyebrow">
+                {selected.edge.structural ? "用語のリンク" : "問題間の関連"}
+              </div>
+              <h3 className="graph-drawer__title">
+                {RELATION_KIND_LABEL[selected.edge.kind] ?? selected.edge.kind}
+              </h3>
+              <p className="graph-drawer__body">{selected.edge.explanation}</p>
+              <div className="graph-drawer__edge-ends">
+                {(() => {
+                  const src = nodeMap.get(selected.edge.source);
+                  const dst = nodeMap.get(selected.edge.target);
+                  return (
+                    <>
+                      {src && (
+                        <button
+                          type="button"
+                          className="btn btn--ghost btn--sm"
+                          onClick={() => warpTo(src)}
+                        >
+                          ← {src.kind === "tip" ? src.term : src.label}
+                        </button>
+                      )}
+                      {dst && (
+                        <button
+                          type="button"
+                          className="btn btn--ghost btn--sm"
+                          onClick={() => warpTo(dst)}
+                        >
+                          {dst.kind === "tip" ? dst.term : dst.label} →
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            </>
+          )}
           {selected.kind === "node" && selected.node.kind === "tip" && (
             <>
               <div className="graph-drawer__eyebrow">用語</div>
