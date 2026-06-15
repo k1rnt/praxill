@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev -p 1234",
     "build": "next build",
-    "start": "next start -p 1234"
+    "start": "next start -p 1234",
+    "seed-graph": "tsx scripts/seed-graph.ts"
   },
   "dependencies": {
     "@types/d3-force": "^3.0.10",
@@ -25,6 +26,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "tsx": "^4.22.4",
     "typescript": "^5"
   }
 }

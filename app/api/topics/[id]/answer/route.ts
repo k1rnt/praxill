@@ -17,6 +17,29 @@ import { parseLatestQuiz } from "@/lib/parseQuiz";
 import { buildRehydrationPrompt } from "@/lib/prompt";
 import { badRequest, readJsonObject, sanitizeCodexError } from "@/lib/http";
 import { SKIP_USER_CONTENT } from "@/lib/skip";
+import { discoverRelationsForMessage } from "@/lib/graphLink";
+
+/**
+ * Fire-and-forget the cross-topic relation discovery for a just-emitted
+ * assistant message. Only runs if the message actually contains a quiz
+ * (the linker keys off the Q title + tip term — a pure explanation
+ * response has nothing to link). Errors are swallowed because the
+ * graph is auxiliary; user-facing latency must not depend on it.
+ */
+function maybeFireGraphLinker(
+  topicId: string,
+  messageId: number | null,
+  text: string,
+) {
+  if (messageId === null) return;
+  if (!parseLatestQuiz(text)) return;
+  discoverRelationsForMessage({ topicId, messageId }).catch((err) => {
+    console.warn(
+      `[answer] graph linker failed for topic ${topicId} msg ${messageId}:`,
+      err,
+    );
+  });
+}
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -273,8 +296,10 @@ async function runCodexInBackground(
     }
     const call2 = await codexResume(tid, call2Prompt, reasoning, lockId);
 
+    let call2MessageId: number | null = null;
     const wrote2 = withCodexLock(topicId, lockId, (topic) => {
-      addMessage(topicId, "assistant", call2.text);
+      const msg = addMessage(topicId, "assistant", call2.text);
+      call2MessageId = msg.id;
       // Phase 1-A meta on the new quiz; Phase number may bump if this is
       // the start of a new Phase.
       const progress = parseAssistantProgress(call2.text, false);
@@ -292,6 +317,8 @@ async function runCodexInBackground(
       console.warn(
         `[answer] codex lock lost during call 2 for topic ${topicId}; dropping next quiz`,
       );
+    } else {
+      maybeFireGraphLinker(topicId, call2MessageId, call2.text);
     }
   } catch (err) {
     const msg = sanitizeCodexError(err);
@@ -358,8 +385,10 @@ async function runFreeformInBackground(
       );
       rehydrated = true;
     }
+    let freeformMessageId: number | null = null;
     const wrote = withCodexLock(topicId, lockId, (topic) => {
-      addMessage(topicId, "assistant", result.text);
+      const msg = addMessage(topicId, "assistant", result.text);
+      freeformMessageId = msg.id;
       const progress = parseAssistantProgress(result.text, false);
       // Phase update policy:
       //   - normal freeform: monotonic (Math.max) so a stray "Phase 1"
@@ -389,6 +418,8 @@ async function runFreeformInBackground(
       console.warn(
         `[answer:freeform] codex lock lost for topic ${topicId}; dropping result`,
       );
+    } else {
+      maybeFireGraphLinker(topicId, freeformMessageId, result.text);
     }
   } catch (err) {
     const msg = sanitizeCodexError(err);
