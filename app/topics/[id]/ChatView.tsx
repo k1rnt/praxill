@@ -450,23 +450,30 @@ export default function ChatView({
     if (!focusParam) return null;
     const targetId = Number(focusParam);
     if (Number.isNaN(targetId)) return null;
-    // Three places a target id can land:
-    //   - r.user:          the user's answer (search results often)
-    //   - r.assistant:     the message that responded TO this user turn
-    //                      (freeform "次の問題をください" → Q in assistant)
-    //   - r.prevAssistant: the Q the user was answering (Phase-2 split:
-    //                      grading + next Q are separate assistant
-    //                      messages, so the Q the user answered is the
-    //                      one BEFORE their input)
-    // The graph view passes Q message ids; without the prevAssistant
-    // arm here, every "題材を開く" from a graded Q silently no-ops.
-    const match = rounds.find(
-      (r) =>
-        r.user.id === targetId ||
-        r.assistant?.id === targetId ||
-        r.prevAssistant?.id === targetId,
-    );
-    return match?.user.id ?? null;
+    // A target id can resolve to up to THREE rounds at once because the
+    // legacy single-call flow packs (prev-grade + next-Q) into one
+    // assistant message. e.g. msg M is r.assistant of Round(prev-user)
+    // AND r.prevAssistant of Round(next-user). If we did one big OR
+    // find(), array order would pick Round(prev-user) — that's the
+    // round where the user is answering the OLDER Q. For graph-driven
+    // Q clicks we want Round(next-user) — the round where the user
+    // actually answers this Q, with the Q text visible above it.
+    //
+    // Priority: prevAssistant > assistant > user
+    //   - prevAssistant: the Q the round answers. Best for graph-Q
+    //     clicks regardless of flow (legacy single-call, freeform, or
+    //     Phase-2 split — in all three, the Q lives in prevAssistant
+    //     of the answer round).
+    //   - assistant: messages that have no role as a Q anywhere (pure
+    //     grading) only show up here. Useful for /search hits on
+    //     grading text.
+    //   - user: /search hits on the user's own answer.
+    const byPrev = rounds.find((r) => r.prevAssistant?.id === targetId);
+    if (byPrev) return byPrev.user.id;
+    const byAsst = rounds.find((r) => r.assistant?.id === targetId);
+    if (byAsst) return byAsst.user.id;
+    const byUser = rounds.find((r) => r.user.id === targetId);
+    return byUser?.user.id ?? null;
   }, [focusParam, rounds]);
 
   const focusedPhase = useMemo(() => {
