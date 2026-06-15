@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ReactFlow,
@@ -12,6 +12,15 @@ import {
   type EdgeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import {
+  forceSimulation,
+  forceManyBody,
+  forceLink,
+  forceCenter,
+  forceCollide,
+  type SimulationNodeDatum,
+  type SimulationLinkDatum,
+} from "d3-force";
 
 export type GraphNode = {
   id: string;
@@ -50,68 +59,87 @@ export type GraphData = {
   relationCount: number;
 };
 
-// Layout: cluster Q nodes by topic into vertical columns, tips
-// floating to the right shared by all topics. With ~hundreds of nodes
-// this stays readable; once cross-topic edges actually exist we can
-// swap in a real force-directed layout (dagre / d3-force / cola).
-//
-//   x: per-topic column, 320px apart
-//   y: stacked Qs, 60px apart inside each topic
-//
-// Tips go into one large band on the right whose y is the hash of the
-// term — predictable across reloads, no overlap collision check.
-function layoutNodes(data: GraphData): Node[] {
-  const topicOrder = new Map<string, number>();
-  for (const n of data.nodes) {
-    if (n.kind !== "question") continue;
-    if (!n.topicId) continue;
-    if (!topicOrder.has(n.topicId)) {
-      topicOrder.set(n.topicId, topicOrder.size);
-    }
-  }
+// d3 simulation node — accepts (x, y) from the simulator and remembers
+// our payload so we can map back to react-flow shapes.
+type SimNode = SimulationNodeDatum & { id: string; kind: GraphNode["kind"] };
 
-  const questionRowInTopic = new Map<string, number>();
-  const out: Node[] = [];
-  const TOPIC_COL_X = 320;
-  const ROW_Y = 64;
-  const TIP_BAND_X = topicOrder.size * TOPIC_COL_X + 200;
-
-  for (const n of data.nodes) {
-    if (n.kind === "question") {
-      const ti = topicOrder.get(n.topicId ?? "") ?? 0;
-      const k = n.topicId ?? "";
-      const row = questionRowInTopic.get(k) ?? 0;
-      questionRowInTopic.set(k, row + 1);
-      out.push({
-        id: n.id,
-        position: { x: ti * TOPIC_COL_X, y: row * ROW_Y },
-        data: { node: n },
-        type: "praxQuestion",
-        draggable: true,
-      });
-    } else {
-      // Hash-based y position. Deterministic and spread out.
-      const h = hashStringToInt(n.term ?? n.id);
-      const y = (h % 800) + 50;
-      const x = TIP_BAND_X + ((h >> 10) % 240);
-      out.push({
-        id: n.id,
-        position: { x, y },
-        data: { node: n },
-        type: "praxTip",
-        draggable: true,
-      });
-    }
+// Stable per-topic hue so questions in the same topic share a color.
+// Hash → 0..360 degrees on the colour wheel; 18 topics gets us a roughly
+// even spread, more topics start to cycle but stay distinguishable
+// because nearby clusters spatially separate via the force layout.
+function topicColor(topicId: string | undefined): string {
+  if (!topicId) return "var(--fg-muted)";
+  let h = 0;
+  for (let i = 0; i < topicId.length; i++) {
+    h = (h * 31 + topicId.charCodeAt(i)) | 0;
   }
-  return out;
+  const hue = Math.abs(h) % 360;
+  return `hsl(${hue} 70% 55%)`;
 }
 
-function hashStringToInt(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (h * 31 + s.charCodeAt(i)) | 0;
+// Run a force-directed layout to position nodes Obsidian-style: strong
+// repulsion + collision so unrelated nodes drift apart, link force so
+// structurally connected pairs (Q→tip introductions, and Phase-2 cross-
+// topic relations once they land) cluster together. Returns a map from
+// node id → {x, y}.
+//
+// Scaled by node count: small graphs (< 100 nodes) get tighter spacing
+// for readability; big graphs (500+) need more breathing room or they
+// re-mush into a blob. Tick count is also bumped for big graphs so the
+// simulation actually settles.
+function runForceLayout(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+): Map<string, { x: number; y: number }> {
+  const n = nodes.length;
+  const sizeScale = Math.max(1, Math.sqrt(n / 100));
+  const simNodes: SimNode[] = nodes.map((node) => ({
+    id: node.id,
+    kind: node.kind,
+  }));
+  const simLinks: SimulationLinkDatum<SimNode>[] = edges
+    .filter(
+      (e) =>
+        simNodes.some((s) => s.id === e.source) &&
+        simNodes.some((s) => s.id === e.target),
+    )
+    .map((e) => ({
+      source: e.source,
+      target: e.target,
+      // Structural Q→tip edges pull tighter than future cross-topic
+      // relation edges, so a tip clings to its introducing Qs but the
+      // whole cluster can still drift toward relation neighbours.
+      ...(e.structural ? { strength: 0.4 } : { strength: 0.15 }),
+    }));
+
+  const sim = forceSimulation<SimNode>(simNodes)
+    .force(
+      "charge",
+      forceManyBody<SimNode>().strength(-260 * sizeScale).distanceMax(900),
+    )
+    .force(
+      "link",
+      forceLink<SimNode, SimulationLinkDatum<SimNode>>(simLinks)
+        .id((d) => d.id)
+        .distance(110 * sizeScale),
+    )
+    .force(
+      "collide",
+      forceCollide<SimNode>().radius((d) => (d.kind === "tip" ? 38 : 30)),
+    )
+    .force("center", forceCenter(0, 0))
+    .stop();
+
+  // Synchronous tick — we want positions before the first paint, not a
+  // wiggling animation that re-flows during interaction.
+  const ticks = Math.min(400, Math.max(180, n * 2));
+  for (let i = 0; i < ticks; i++) sim.tick();
+
+  const pos = new Map<string, { x: number; y: number }>();
+  for (const s of simNodes) {
+    pos.set(s.id, { x: s.x ?? 0, y: s.y ?? 0 });
   }
-  return Math.abs(h);
+  return pos;
 }
 
 function buildEdges(data: GraphData): Edge[] {
@@ -122,35 +150,39 @@ function buildEdges(data: GraphData): Edge[] {
     data: { edge: e },
     animated: !e.structural,
     style: e.structural
-      ? { stroke: "var(--border-strong)", strokeDasharray: "4 4", opacity: 0.6 }
-      : { stroke: "var(--accent)", strokeWidth: 1.5 },
+      ? {
+          stroke: "var(--border-strong)",
+          strokeWidth: 0.8,
+          opacity: 0.35,
+        }
+      : { stroke: "var(--accent)", strokeWidth: 1.4 },
   }));
 }
 
+// Obsidian-style compact node renderers. The visible footprint is a
+// small dot with the label below; the larger card opens in the drawer
+// on click. Keeps the canvas readable when there are hundreds of nodes.
 function QuestionNode({ data }: { data: { node: GraphNode } }) {
   const n = data.node;
+  const color = topicColor(n.topicId);
   return (
-    <div className="graph-node graph-node--question" title={n.tooltip}>
-      <div className="graph-node__meta">
-        {n.phase !== undefined && (
-          <span className="graph-node__phase">P{n.phase}</span>
-        )}
-        {n.qNumber && <span className="graph-node__qnum">Q{n.qNumber}</span>}
-      </div>
-      <div className="graph-node__label">{n.label}</div>
-      <div className="graph-node__topic">{n.topicTitle}</div>
+    <div className="gnode gnode--question" title={n.label}>
+      <div className="gnode__dot" style={{ background: color }} />
+      <div className="gnode__label">{n.label}</div>
     </div>
   );
 }
 
 function TipNode({ data }: { data: { node: GraphNode } }) {
   const n = data.node;
+  const hub = (n.topics?.length ?? 0) > 1;
   return (
-    <div className="graph-node graph-node--tip" title={n.tooltip}>
-      <div className="graph-node__label">{n.label}</div>
-      {n.topics && n.topics.length > 1 && (
-        <div className="graph-node__topic">{n.topics.length} 題材で登場</div>
-      )}
+    <div
+      className={`gnode gnode--tip${hub ? " gnode--hub" : ""}`}
+      title={n.label}
+    >
+      <div className="gnode__dot gnode__dot--tip" />
+      <div className="gnode__label gnode__label--tip">{n.label}</div>
     </div>
   );
 }
@@ -161,8 +193,40 @@ const nodeTypes = {
 };
 
 export default function GraphView({ data }: { data: GraphData }) {
-  const nodes = useMemo(() => layoutNodes(data), [data]);
-  const edges = useMemo(() => buildEdges(data), [data]);
+  // Force layout runs once per data change. For the typical case (data
+  // doesn't change while the user is on /graph), this fires on mount
+  // only. For 500-1000 nodes it takes ~150-300 ms — acceptable for a
+  // foreground render, with the empty canvas visible until then.
+  const [positions, setPositions] = useState<Map<
+    string,
+    { x: number; y: number }
+  > | null>(null);
+
+  useEffect(() => {
+    // Defer to next tick so the empty canvas paints first; with hundreds
+    // of nodes the layout itself can block for ~200ms.
+    const id = window.setTimeout(() => {
+      setPositions(runForceLayout(data.nodes, data.edges));
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [data]);
+
+  const nodes: Node[] = useMemo(() => {
+    if (!positions) return [];
+    return data.nodes.map((n) => {
+      const p = positions.get(n.id) ?? { x: 0, y: 0 };
+      return {
+        id: n.id,
+        position: p,
+        data: { node: n },
+        type: n.kind === "tip" ? "praxTip" : "praxQuestion",
+        draggable: true,
+      } satisfies Node;
+    });
+  }, [data.nodes, positions]);
+
+  const edges: Edge[] = useMemo(() => buildEdges(data), [data]);
+
   const [selected, setSelected] = useState<
     | { kind: "node"; node: GraphNode }
     | { kind: "edge"; edge: GraphEdge }
@@ -194,6 +258,11 @@ export default function GraphView({ data }: { data: GraphData }) {
 
   return (
     <div className="graph-canvas">
+      {positions === null && (
+        <div className="graph-canvas__loading">
+          グラフを配置中… ({data.nodes.length} ノード)
+        </div>
+      )}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -201,12 +270,15 @@ export default function GraphView({ data }: { data: GraphData }) {
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
         onPaneClick={() => setSelected(null)}
-        minZoom={0.1}
-        maxZoom={2}
+        minZoom={0.05}
+        maxZoom={3}
         fitView
+        fitViewOptions={{ padding: 0.15 }}
         proOptions={{ hideAttribution: true }}
+        nodesConnectable={false}
+        edgesFocusable={false}
       >
-        <Background gap={24} />
+        <Background gap={32} />
         <Controls showInteractive={false} />
       </ReactFlow>
       {selected && (

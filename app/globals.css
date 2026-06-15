@@ -251,52 +251,96 @@ kbd {
   border-radius: 12px;
 }
 
-.graph-node {
-  background: var(--bg-elev);
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  padding: 8px 10px;
-  width: 220px;
-  font-size: 0.82rem;
-  line-height: 1.4;
-  color: var(--fg);
-  box-shadow: var(--shadow-card);
+/* Obsidian-style compact node: a small coloured dot with the label
+   floating below. The node's bounding box is tiny so the force-layout
+   has real breathing room; the label is positioned absolutely so it
+   doesn't dilate the collision radius. */
+.gnode {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 12px;
+  height: 12px;
   cursor: pointer;
 }
-.graph-node:hover {
-  border-color: var(--accent);
+.gnode__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+  transition: transform 120ms ease, box-shadow 120ms ease;
 }
-.graph-node--question {
-  border-left: 3px solid var(--accent);
+.gnode--tip .gnode__dot--tip {
+  width: 14px;
+  height: 14px;
+  background: color-mix(in srgb, var(--accent) 90%, white);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25),
+    0 0 12px color-mix(in srgb, var(--accent) 50%, transparent);
 }
-.graph-node--tip {
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev));
-  border-left: 3px solid color-mix(in srgb, var(--accent) 60%, var(--fg-muted));
-  width: 180px;
+.gnode--hub .gnode__dot--tip {
+  /* "Hub" tips appear in 2+ topics — beefier glow so they pop. */
+  width: 18px;
+  height: 18px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25),
+    0 0 18px color-mix(in srgb, var(--accent) 80%, transparent);
 }
-.graph-node__meta {
-  display: flex;
-  gap: 6px;
-  font-size: 0.7rem;
+.gnode:hover .gnode__dot {
+  transform: scale(1.4);
+  box-shadow: 0 0 0 2px var(--accent), 0 0 12px var(--accent);
+}
+.gnode__label {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 160px;
+  font-size: 0.66rem;
+  line-height: 1.25;
   color: var(--fg-muted);
-  font-variant-numeric: tabular-nums;
-  margin-bottom: 4px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  text-shadow: 0 1px 4px var(--bg), 0 -1px 4px var(--bg);
 }
-.graph-node__phase,
-.graph-node__qnum {
-  background: var(--bg-elev-2);
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-.graph-node__label {
+.gnode--tip .gnode__label--tip {
+  top: 18px;
+  font-size: 0.74rem;
   font-weight: 600;
-  margin-bottom: 2px;
-  word-break: break-word;
+  color: var(--fg);
+  max-width: 180px;
 }
-.graph-node__topic {
-  font-size: 0.7rem;
+.gnode--hub .gnode__label--tip {
+  top: 22px;
+}
+.gnode:hover .gnode__label {
+  color: var(--fg);
+  white-space: normal;
+  z-index: 5;
+}
+
+/* Hide the default React Flow node handles — we don't expose connections,
+   the user can't draw edges, and the dots get visually muddied otherwise. */
+.react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.graph-canvas__loading {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
   color: var(--fg-muted);
-  word-break: break-word;
+  z-index: 5;
 }
 
 .graph-drawer {
