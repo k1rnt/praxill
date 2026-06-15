@@ -274,6 +274,53 @@ const nodeTypes = {
   praxTip: TipNode,
 };
 
+const RELATION_KIND_LABEL: Record<string, string> = {
+  similar: "似ている",
+  applies: "応用",
+  prereq: "前提",
+  contrast: "対比",
+  related: "関連",
+};
+
+function RelationList({
+  items,
+  onWarp,
+}: {
+  items: Array<{ other: GraphNode; edge: GraphEdge }>;
+  onWarp: (n: GraphNode) => void;
+}) {
+  return (
+    <div className="graph-drawer__relations">
+      <div className="graph-drawer__relations-head">
+        関連 ({items.length} 件)
+      </div>
+      <ul className="graph-drawer__relation-list">
+        {items.map(({ other, edge }) => (
+          <li key={edge.id}>
+            <button
+              type="button"
+              className="graph-drawer__relation-row"
+              onClick={() => onWarp(other)}
+            >
+              <span className="graph-drawer__relation-kind">
+                {RELATION_KIND_LABEL[edge.kind] ?? edge.kind}
+              </span>
+              <span className="graph-drawer__relation-label">
+                {other.kind === "tip"
+                  ? other.term
+                  : `${other.label}${other.topicTitle ? ` · ${other.topicTitle}` : ""}`}
+              </span>
+              <span className="graph-drawer__relation-body">
+                {edge.explanation}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function GraphView({ data }: { data: GraphData }) {
   // Force layout runs once per data change. For the typical case (data
   // doesn't change while the user is on /graph), this fires on mount
@@ -407,6 +454,36 @@ export default function GraphView({ data }: { data: GraphData }) {
     return m;
   }, [data.nodes]);
 
+  // Edges aren't clickable anymore (touch zoom needs the pane unblocked
+  // — see globals.css), so the relation explanations now live in the
+  // node drawer: when a node is selected, list every relation edge it
+  // sits on with the other endpoint + the codex-generated explanation.
+  const selectedNodeRelations = useMemo(() => {
+    if (!selected || selected.kind !== "node") return [];
+    const nodeId = selected.node.id;
+    const out: Array<{ other: GraphNode; edge: GraphEdge }> = [];
+    for (const e of data.edges) {
+      if (e.structural) continue; // skip Q→tip introduces — context, not relation
+      let otherId: string | null = null;
+      if (e.source === nodeId) otherId = e.target;
+      else if (e.target === nodeId) otherId = e.source;
+      if (!otherId) continue;
+      const other = nodeMap.get(otherId);
+      if (other) out.push({ other, edge: e });
+    }
+    // Strongest weight first so the most relevant relations head the list.
+    out.sort((a, b) => (b.edge.weight ?? 0.5) - (a.edge.weight ?? 0.5));
+    return out;
+  }, [selected, data.edges, nodeMap]);
+
+  // Jump-to-related: clicking a relation row in the drawer warps focus
+  // and the drawer's body to the target node. Lets the user explore
+  // outward without juggling the canvas.
+  function warpTo(node: GraphNode) {
+    setSelected({ kind: "node", node });
+    setStickyNodeId(node.id);
+  }
+
   const onNodeClick: NodeMouseHandler = (_e, n) => {
     const node = nodeMap.get(n.id);
     if (node) setSelected({ kind: "node", node });
@@ -487,6 +564,12 @@ export default function GraphView({ data }: { data: GraphData }) {
                   題材を開く →
                 </Link>
               )}
+              {selectedNodeRelations.length > 0 && (
+                <RelationList
+                  items={selectedNodeRelations}
+                  onWarp={warpTo}
+                />
+              )}
             </>
           )}
           {selected.kind === "node" && selected.node.kind === "tip" && (
@@ -501,15 +584,12 @@ export default function GraphView({ data }: { data: GraphData }) {
                   登場題材: {selected.node.topics.length} 件
                 </div>
               )}
-            </>
-          )}
-          {selected.kind === "edge" && (
-            <>
-              <div className="graph-drawer__eyebrow">関連</div>
-              <h3 className="graph-drawer__title">
-                {selected.edge.structural ? "用語のリンク" : "問題間の関連"}
-              </h3>
-              <p className="graph-drawer__body">{selected.edge.explanation}</p>
+              {selectedNodeRelations.length > 0 && (
+                <RelationList
+                  items={selectedNodeRelations}
+                  onWarp={warpTo}
+                />
+              )}
             </>
           )}
         </aside>

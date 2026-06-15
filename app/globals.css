@@ -328,15 +328,25 @@ kbd {
    so opacity transitions affect the whole node card uniformly. The
    transform transition on .react-flow__node itself animates the
    "shockwave" — non-focused nodes drift outward, neighbours nudge
-   inward, all with a soft ease-out so it feels organic. */
+   inward, all with a soft ease-out so it feels organic.
+   !important because React Flow's own stylesheet declares
+   `transition: none` on .react-flow__node and would otherwise win. */
 .react-flow__node {
-  transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.gnode-wrap {
-  transition: opacity 240ms ease;
+  transition:
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 240ms ease !important;
 }
 .gnode-wrap--dim {
   opacity: 0.18;
+}
+
+/* Mobile pinch-zoom escape hatch: a canvas full of relation edges
+   intercepts touch events, so two-finger pinch lands on edges instead
+   of the pane and the gesture never registers. Edges become visual-
+   only — relation explanations now live in the node drawer (clicking a
+   node lists its relations), so we don't lose that data path. */
+.react-flow__edge {
+  pointer-events: none;
 }
 /* The anchor (the hovered/clicked node itself) gets a soft halo so the
    user can find the focal point at a glance. */
@@ -440,6 +450,70 @@ kbd {
   color: var(--fg);
   margin: 8px 0 12px;
   white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.graph-drawer__relations {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.graph-drawer__relations-head {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  margin-bottom: 6px;
+}
+.graph-drawer__relation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.graph-drawer__relation-row {
+  width: 100%;
+  text-align: left;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 4px;
+  font: inherit;
+  color: var(--fg);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.graph-drawer__relation-row:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-elev-2));
+}
+.graph-drawer__relation-kind {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  align-self: start;
+  justify-self: start;
+}
+.graph-drawer__relation-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  align-self: center;
+  word-break: break-word;
+}
+.graph-drawer__relation-body {
+  grid-column: 1 / -1;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  line-height: 1.5;
   word-break: break-word;
 }
 
