@@ -559,7 +559,11 @@ export default function GraphView({ data }: { data: GraphData }) {
               {selected.node.topicId && (
                 <Link
                   className="btn btn--primary btn--sm"
-                  href={`/topics/${selected.node.topicId}`}
+                  href={
+                    selected.node.messageId !== undefined
+                      ? `/topics/${selected.node.topicId}?focus=${selected.node.messageId}`
+                      : `/topics/${selected.node.topicId}`
+                  }
                 >
                   題材を開く →
                 </Link>

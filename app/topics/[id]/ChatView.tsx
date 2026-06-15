@@ -468,13 +468,25 @@ export default function ChatView({
   // round so the latest one is the only thing in view. Old rounds the user
   // had open get tucked back away to reduce noise while waiting for / reading
   // the new result. The user can still re-expand any past round manually.
-  // When `focus` is set, also keep that round open.
+  //
+  // When the page was opened with ?focus=X (from /graph or /search), the
+  // focused-only effect below takes precedence and this one bails so we
+  // don't pop the latest round open over the target the user came to see.
   useEffect(() => {
+    if (focusedRoundUserId !== null) return;
     if (lastRoundId === null) return;
-    const next = new Set<number>([lastRoundId]);
-    if (focusedRoundUserId !== null) next.add(focusedRoundUserId);
-    setOpenRounds(next);
+    setOpenRounds(new Set([lastRoundId]));
   }, [lastRoundId, focusedRoundUserId]);
+
+  // Focus collapse: when ?focus=X resolves to a round, open ONLY that
+  // round + ONLY its Phase section, collapsing everything else. Other
+  // Phase auto-opens (latestPhase) and round auto-opens (lastRound) are
+  // either skipped (see above) or stay additive after this initial
+  // collapse — user can re-expand whatever they want after landing.
+  useEffect(() => {
+    if (focusedRoundUserId === null) return;
+    setOpenRounds(new Set([focusedRoundUserId]));
+  }, [focusedRoundUserId]);
 
   // Keep the latest Phase open as it advances. Previously opened Phases stay
   // open — Phase-level toggle is per-section so the user can keep multiple
@@ -487,13 +499,13 @@ export default function ChatView({
     });
   }, [latestPhase]);
 
-  // If we landed on a focused round (from search), open its Phase too.
+  // If we landed on a focused round (from search or /graph), open ONLY
+  // its Phase section — collapse the rest so the page reads as "here's
+  // the specific thing you came to see" rather than a wall of expanded
+  // history.
   useEffect(() => {
     if (focusedPhase === null) return;
-    setOpenPhaseSections((prev) => {
-      if (prev.has(focusedPhase)) return prev;
-      return new Set([...prev, focusedPhase]);
-    });
+    setOpenPhaseSections(new Set([focusedPhase]));
   }, [focusedPhase]);
 
   // Scroll the focused round into view once it's rendered.
