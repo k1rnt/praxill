@@ -14,6 +14,7 @@ import {
   type EdgeMouseHandler,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { Search as SearchIcon, X as XIcon } from "lucide-react";
 import {
   forceSimulation,
   forceManyBody,
@@ -154,12 +155,22 @@ function buildEdges(
   data: GraphData,
   focusSet: Set<string> | null,
   focusNodeId: string | null,
+  matchSet: Set<string> | null,
 ): Edge[] {
   return data.edges.map((e) => {
     const inFocus =
       focusNodeId !== null &&
       (e.source === focusNodeId || e.target === focusNodeId);
-    const dimmed = focusSet !== null && !inFocus;
+    // Search dim: edges between two matched nodes stay visible; an
+    // edge with only one matched endpoint also stays so the user can
+    // see what a match connects to. Edges with no match-side dim.
+    const matchVisible =
+      matchSet === null ||
+      matchSet.has(e.source) ||
+      matchSet.has(e.target);
+    let dimmed: boolean;
+    if (focusSet !== null) dimmed = !inFocus;
+    else dimmed = !matchVisible;
     const baseOpacity = e.structural
       ? STRUCTURAL_BASE_OPACITY
       : RELATION_BASE_OPACITY;
@@ -346,6 +357,32 @@ export default function GraphView({ data }: { data: GraphData }) {
   const [stickyNodeId, setStickyNodeId] = useState<string | null>(null);
   const effectiveFocus = stickyNodeId;
 
+  // In-graph search: as the user types, every node whose label / term /
+  // topic title / tooltip contains the query (case-insensitive) lights
+  // up; non-matches fade. Coexists with click-focus by deferring to it
+  // — when there's a sticky-focused node, focus dimming wins; otherwise
+  // search dimming applies. Empty query = no search dimming.
+  const [searchQuery, setSearchQuery] = useState("");
+  const matchSet = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return null;
+    const s = new Set<string>();
+    for (const n of data.nodes) {
+      const haystack = [
+        n.label,
+        n.term,
+        n.body,
+        n.topicTitle,
+        n.tooltip,
+      ]
+        .filter(Boolean)
+        .join("\n")
+        .toLowerCase();
+      if (haystack.includes(q)) s.add(n.id);
+    }
+    return s;
+  }, [searchQuery, data.nodes]);
+
   // Pre-compute an adjacency map once so 1-hop lookup during focus is O(1)
   // — recomputing inside the focusSet memo would re-walk every edge on
   // every hover event.
@@ -422,24 +459,36 @@ export default function GraphView({ data }: { data: GraphData }) {
       const p = displacedPositions.get(n.id) ?? { x: 0, y: 0 };
       const inFocus = focusSet !== null && focusSet.has(n.id);
       const isAnchor = effectiveFocus === n.id;
-      const dimmed = focusSet !== null && !inFocus;
+      const isMatch = matchSet?.has(n.id) ?? false;
+      // Dim policy: focus wins when sticky; otherwise search wins.
+      // No-op when neither is active.
+      let dimmed = false;
+      if (focusSet !== null) dimmed = !inFocus;
+      else if (matchSet !== null) dimmed = !isMatch;
+      const cls = [
+        "gnode-wrap",
+        dimmed ? "gnode-wrap--dim" : "",
+        isMatch && focusSet === null ? "gnode-wrap--match" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
       return {
         id: n.id,
         position: p,
-        data: { node: n, dimmed, isAnchor },
+        data: { node: n, dimmed, isAnchor, isMatch },
         type: n.kind === "tip" ? "praxTip" : "praxQuestion",
         // Dragging doesn't compose well with shockwave repositioning —
         // a dragged node would race against the transform. The view is
         // for browsing, not editing layout.
         draggable: false,
-        className: dimmed ? "gnode-wrap gnode-wrap--dim" : "gnode-wrap",
+        className: cls,
       } satisfies Node;
     });
-  }, [data.nodes, displacedPositions, focusSet, effectiveFocus]);
+  }, [data.nodes, displacedPositions, focusSet, effectiveFocus, matchSet]);
 
   const edges: Edge[] = useMemo(
-    () => buildEdges(data, focusSet, effectiveFocus),
-    [data, focusSet, effectiveFocus],
+    () => buildEdges(data, focusSet, effectiveFocus, matchSet),
+    [data, focusSet, effectiveFocus, matchSet],
   );
 
   const [selected, setSelected] = useState<
@@ -509,6 +558,36 @@ export default function GraphView({ data }: { data: GraphData }) {
           グラフを配置中… ({data.nodes.length} ノード)
         </div>
       )}
+      <div className="graph-search">
+        <SearchIcon
+          size={14}
+          strokeWidth={2}
+          className="graph-search__icon"
+          aria-hidden
+        />
+        <input
+          type="search"
+          className="graph-search__input"
+          placeholder="ノードを検索 (用語・題材・問題タイトル)"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        {searchQuery && (
+          <>
+            <span className="graph-search__count">
+              {matchSet?.size ?? 0}
+            </span>
+            <button
+              type="button"
+              className="graph-search__clear"
+              onClick={() => setSearchQuery("")}
+              aria-label="検索クリア"
+            >
+              <XIcon size={14} strokeWidth={2.2} />
+            </button>
+          </>
+        )}
+      </div>
       <ReactFlow
         nodes={nodes}
         edges={edges}
