@@ -293,14 +293,11 @@ export default function GraphView({ data }: { data: GraphData }) {
     return () => window.clearTimeout(id);
   }, [data]);
 
-  // Focus state: hover gives a transient focus that follows the cursor,
-  // click pins it sticky until the user clicks empty pane or a different
-  // node. Touch devices only get the sticky variant because there's no
-  // hover, but the same code path drives both — `effectiveFocus` resolves
-  // sticky > hover.
-  const [hoverNodeId, setHoverNodeId] = useState<string | null>(null);
+  // Focus is click-only. Hover-driven bloom was too flickery — every
+  // micro-movement re-fired the dim animation and the whole canvas
+  // strobed. Click pins it sticky; pane click clears.
   const [stickyNodeId, setStickyNodeId] = useState<string | null>(null);
-  const effectiveFocus = stickyNodeId ?? hoverNodeId;
+  const effectiveFocus = stickyNodeId;
 
   // Pre-compute an adjacency map once so 1-hop lookup during focus is O(1)
   // — recomputing inside the focusSet memo would re-walk every edge on
@@ -324,10 +321,58 @@ export default function GraphView({ data }: { data: GraphData }) {
     return s;
   }, [effectiveFocus, adjacency]);
 
+  // Obsidian-style "shockwave": when the user clicks a node, nodes
+  // outside the focus set push softly away from the anchor and 1-hop
+  // neighbours nudge slightly inward, leaving a visual clearing around
+  // the focal point. Magnitude falls off with distance so far-away
+  // clusters stay put.
+  //
+  // CSS transition on the wrapper handles the easing; we just supply
+  // start + end positions, React Flow's translate is what actually
+  // animates.
+  const displacedPositions = useMemo(() => {
+    if (!positions || !effectiveFocus) return positions;
+    const anchor = positions.get(effectiveFocus);
+    if (!anchor) return positions;
+    const PUSH_RADIUS = 380; // shockwave reach
+    const MAX_PUSH = 90; // strongest outward push
+    const PULL = 18; // gentle inward pull for direct neighbours
+    const out = new Map<string, { x: number; y: number }>();
+    for (const [id, p] of positions) {
+      if (id === effectiveFocus) {
+        out.set(id, p);
+        continue;
+      }
+      const dx = p.x - anchor.x;
+      const dy = p.y - anchor.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist === 0) {
+        out.set(id, p);
+        continue;
+      }
+      const nx = dx / dist;
+      const ny = dy / dist;
+      if (focusSet?.has(id)) {
+        // Neighbour — pull a little closer (and clamp so we don't
+        // overshoot the anchor).
+        const pull = Math.min(PULL, dist * 0.25);
+        out.set(id, { x: p.x - nx * pull, y: p.y - ny * pull });
+      } else if (dist < PUSH_RADIUS) {
+        // Stranger inside the shockwave — push outward, strength
+        // strongest near the anchor.
+        const push = (1 - dist / PUSH_RADIUS) * MAX_PUSH;
+        out.set(id, { x: p.x + nx * push, y: p.y + ny * push });
+      } else {
+        out.set(id, p);
+      }
+    }
+    return out;
+  }, [positions, effectiveFocus, focusSet]);
+
   const nodes: Node[] = useMemo(() => {
-    if (!positions) return [];
+    if (!displacedPositions) return [];
     return data.nodes.map((n) => {
-      const p = positions.get(n.id) ?? { x: 0, y: 0 };
+      const p = displacedPositions.get(n.id) ?? { x: 0, y: 0 };
       const inFocus = focusSet !== null && focusSet.has(n.id);
       const isAnchor = effectiveFocus === n.id;
       const dimmed = focusSet !== null && !inFocus;
@@ -336,11 +381,14 @@ export default function GraphView({ data }: { data: GraphData }) {
         position: p,
         data: { node: n, dimmed, isAnchor },
         type: n.kind === "tip" ? "praxTip" : "praxQuestion",
-        draggable: true,
+        // Dragging doesn't compose well with shockwave repositioning —
+        // a dragged node would race against the transform. The view is
+        // for browsing, not editing layout.
+        draggable: false,
         className: dimmed ? "gnode-wrap gnode-wrap--dim" : "gnode-wrap",
       } satisfies Node;
     });
-  }, [data.nodes, positions, focusSet, effectiveFocus]);
+  }, [data.nodes, displacedPositions, focusSet, effectiveFocus]);
 
   const edges: Edge[] = useMemo(
     () => buildEdges(data, focusSet, effectiveFocus),
@@ -368,12 +416,6 @@ export default function GraphView({ data }: { data: GraphData }) {
     const edge = data.edges.find((x) => x.id === e.id);
     if (edge) setSelected({ kind: "edge", edge });
   };
-  const onNodeMouseEnter: NodeMouseHandler = (_e, n) => {
-    setHoverNodeId(n.id);
-  };
-  const onNodeMouseLeave: NodeMouseHandler = () => {
-    setHoverNodeId(null);
-  };
 
   if (data.nodes.length === 0) {
     return (
@@ -396,8 +438,6 @@ export default function GraphView({ data }: { data: GraphData }) {
         nodeTypes={nodeTypes}
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
-        onNodeMouseEnter={onNodeMouseEnter}
-        onNodeMouseLeave={onNodeMouseLeave}
         onPaneClick={() => {
           setSelected(null);
           setStickyNodeId(null);

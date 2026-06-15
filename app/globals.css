@@ -322,21 +322,21 @@ kbd {
   z-index: 5;
 }
 
-/* Obsidian-style focus: hover or click a node, the 1-hop neighbourhood
-   stays full strength and everything else fades to a whisper. The
-   wrapper class lives on the .react-flow__node element (set via
-   Node.className) so opacity transitions affect the whole node card
-   uniformly. */
+/* Obsidian-style focus: click a node, the 1-hop neighbourhood stays
+   full strength while everything else fades to a whisper. The wrapper
+   class lives on the .react-flow__node element (set via Node.className)
+   so opacity transitions affect the whole node card uniformly. The
+   transform transition on .react-flow__node itself animates the
+   "shockwave" — non-focused nodes drift outward, neighbours nudge
+   inward, all with a soft ease-out so it feels organic. */
+.react-flow__node {
+  transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
 .gnode-wrap {
-  transition: opacity 200ms ease;
+  transition: opacity 240ms ease;
 }
 .gnode-wrap--dim {
-  opacity: 0.12;
-}
-.gnode-wrap--dim:hover {
-  /* Hovering a dimmed node briefly de-dims it so users can still find
-     and tap nodes outside the current focus set. */
-  opacity: 0.6;
+  opacity: 0.18;
 }
 /* The anchor (the hovered/clicked node itself) gets a soft halo so the
    user can find the focal point at a glance. */
